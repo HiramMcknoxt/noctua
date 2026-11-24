@@ -1,0 +1,165 @@
+1/4
+
+NOCTUA Review Verdict
+
+You
+
+janus.py
+Code
+
+sentinel.py
+Code
+
+alert_check.py
+Code
+
+backup.py
+Code
+
+checkpoint.py
+Code
+
+compact.py
+Code
+
+frigate_bridge.py
+Code
+
+hotlist_sync.py
+Code
+
+provision.py
+Code
+
+publish_witness.sh
+Code
+
+restore.py
+Code
+
+retention.py
+Code
+
+rotation.py
+Code
+
+sentinel_audit.py
+Code
+
+run_tests.py
+Code
+
+TRACK-12-REPOR…
+Document
+
+COMPACT.md
+Document
+
+SYNTHESIS.md
+Document
+
+BRIEF.md
+Document
+
+chatgpt-review.md
+Document
+
+# NOCTUA Council — Round 4 Brief (review of NOCTUA 1.2)
+You are one of four hostile-review seats on the NOCTUA council
+(the others: ChatGPT, Gemini, Claude ×2 — you do not see their
+reviews). NOCTUA is an open-source, city-owned ALPR system for
+Cabot, Arkansas: Janus (the one logged front door for all plate
+data), Sentinel (a hash-chained append-only audit log), a 14-day
+retention policy under Ark. Code §§ 12-12-1801–1808 (150-day
+state ceiling), protection-order suppressions, two-key Tier 3
+historical searches, and the Compact — reciprocal cross-audits
+
+Take your curiosity further
+Scan to get the ChatGPT app
+
+2/4
+
+between agencies: no cross-audit, no data.
+Round 3 (your seat included) returned NO-GO on 1.1,
+unanimously. The round-3 synthesis is attached
+(council3/SYNTHESIS.md); your own round-3 review is attached
+too. NOCTUA 1.2 was built to the synthesis's 18 items (S1–S18).
+The spine is the forced change two seats issued independently: a
+PLATE_DATA_STORES registry in the code declaring every place
+plate data can live, with retention and the audit tool enforcing it.
+## What is attached
+- janus12/janus.py, janus12/sentinel.py — the service and chain.
+- janus12/scripts/ — retention, checkpoint, publish_witness.sh,
+backup, restore, compact, rotation, sentinel_audit, frigate_bridge,
+provision, alert_check, hotlist_sync.
+- janus12/tests/run_tests.py — the builders' suite.
+- janus12/TRACK-12-REPORT.md — the builders' report (claims
+246/246 checks, incl. 26 named round-3 attacks and a 1,000append two-process stress test). The orchestrator independently
+re-ran the suite from scratch: 246/246, exit 0, and spot-verified
+code claims (plate_ref normalization, latest-row gate, chain_ok in
+health, registry wiring). Treat the suite as the builders' own —
+your round-3 critique of author-written tests stands. Judge the
+code.
+- janus12/COMPACT.md — the Compact design as built in 1.2.
+- council3/SYNTHESIS.md and your seat's round-3 review (chatgptreview.md).
+Note: 1.2 is not yet on GitHub (publication awaits the owner's
+approval click). The attachments are the exact files that will be
+published as 1.2/; review them, not the repo's older trees.
+## Your task
+A. Verify your own round-3 findings against 1.2. For each: FIXED /
+NOT FIXED / FIXED-BUT-WRONG, with line cites from the attached
+
+Take your curiosity further
+Scan to get the ChatGPT app
+
+3/4
+
+files.
+B. Attack what's new. At minimum: Is the PLATE_DATA_STORES
+registry actually complete — can plate data (or a recoverable
+copy) live somewhere it doesn't declare, and does the schema test
+really catch a new store? Ed25519 signing via the system openssl
+(key generation, custody, verification paths in
+checkpoint/compact/sentinel_audit/rotation). The chain_auditor
+fence. Same-transaction chain appends — is any write path still
+commit-before-log? The Compact gate's latest-row semantics and
+the signed-receipt flow. Rotation's seed-driven permutation and
+duty tracking. Restore's boot-marker RESTORE chaining and the
+never-overwrite rule for checkpoints. Key-continuity lockout
+(refuse-to-start). Anything else you find.
+C. Rule on convergence. The loop converges when ALL of these
+hold: (1) no seat raises a deployment-blocking or code-critical
+finding against the current build; (2) every forced change from
+prior rounds is implemented or answered in writing with a
+reason; (3) what remains is documented CANT-DO limitations or
+legal/institutional questions routed to the City Attorney or ACIC —
+not code defects; (4) the orchestrator's re-tests pass (they do,
+above — your job is to say whether they prove enough). State
+explicitly: CONVERGED or NOT CONVERGED, and if the code earns
+it, ONE forced change.
+Judge against two standards and say which each finding uses:
+NOCTUA's own claims (docstrings, COMPACT.md, TRACK-12REPORT, the round-3 dispositions) and the statute (Ark. Code §§
+12-12-1801–1808; Act 668 of 2025 is still unverified against the
+enrolled bill — flag, don't settle). Where a claim needs a runtime
+test you cannot run, say so rather than guessing.
+## Model protocol (standing, set by the owner)
+Use the best model and highest effort level INCLUDED in the
+owner's existing subscription for this seat. Do NOT use Fable (no
+
+Take your curiosity further
+Scan to get the ChatGPT app
+
+4/4
+
+credits). Do NOT use Ultra-class or any credit-gated tier. If the top
+tier is credit-gated, step down to the best included model and say
+so plainly. Your report must open with a "MODEL/EFFORT USED:"
+line stating the actual model and effort shown in the UI.
+Worked for 17s
+Analyzed
+ChatGPT
+
+Take your curiosity further
+Scan to get the ChatGPT app
+
+
