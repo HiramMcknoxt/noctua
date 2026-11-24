@@ -1,0 +1,101 @@
+{
+  "S1 camera outage (90 days, 9 cameras, full volume)": {
+    "assumptions": "failure prob 0.01/camera-day, duration uniform (1, 2, 3) days, busiest-site share 0.18 of citywide reads",
+    "random failures: events observed vs expected": "9 vs 8.1",
+    "random failures: outage camera-days observed vs expected": "17 vs 16.2",
+    "random failures: reads lost observed vs expected": "84,698 vs 79,956",
+    "random failures: expected matches lost (reads x Cabot rate)": "7.25 (expected 6.84)",
+    "random failures: fleet availability": "97.90%",
+    "targeted 7-day outage, BUSIEST camera: reads lost": "55,969",
+    "targeted 7-day outage, busiest: expected matches lost": "4.79",
+    "same 7 days, AVERAGE camera: reads / matches lost": "34,549 / 2.96",
+    "reading": "one week dark at the busiest site costs ~1.6x an average site and ~5 expected matches \u2014 the matches are not delayed, they are gone; the vehicle does not come back."
+  },
+  "S2 backhaul drop / store-and-forward (180 days, 9 cameras)": {
+    "assumptions": "actionable window 600 s after the read; normal latency lognormal median 25 s sigma 0.8; per-site outage 2%/site-day, uniform 1-8 h",
+    "alerts simulated": "671 (expected ~684)",
+    "latency p50 / p95 / max": "26 s / 96 s / 5.2 h",
+    "alerts arriving after the actionable window": "2 (0.30%)",
+    "of those, caused by a backhaul outage": "2",
+    "expected share of alerts caught in an outage": "0.375% vs observed 0.298%",
+    "per 6 months at Cabot volume, alerts arriving as history": "~2 (of ~671 total alerts)",
+    "reading": "store-and-forward preserves the RECORD perfectly and the ALERT barely at all: a queued hot-list alert is a Tier 2 lead by the time it lands. The design must show read age on every alert and never present a stale alert as live."
+  },
+  "S3 disk pressure (9 cameras, full volume)": {
+    "assumptions": "170 KB retained per read (snapshot + crop), disk 500 GB, base system 60 GB, retention failure begins day 30 at plateau",
+    "storage growth": "7.55 GB/day",
+    "(a) retention works: steady-state disk use": "166 GB (33% of disk) \u2014 flat forever",
+    "(b) retention dead, NO alarm: use after 7 silent days": "219 GB; disk 100% full on day 74 (500 GB) or day 41 (250 GB)",
+    "(c) retention dead, dead-man alarm fires day 1, fixed day 2: peak use": "181 GB (36% of disk) \u2014 a non-event",
+    "reading": "the 14-day retention IS the disk-sizing control. On a 500 GB disk an unnoticed dead retention job takes ~6 weeks to fill the disk; on a 250 GB disk ~2 weeks. The dead-man alarm converts both into a rounding error \u2014 but only if something off the box notices the silence (see TRACK-C-REPORT findings)."
+  },
+  "S4 clock skew (two cameras, one day, ~9,971 merged reads)": {
+    "assumptions": "camera B clock offset fixed per run; events are Poisson streams at the Cabot per-camera rate (mean gap 17.5 s/read)",
+    "timeline inversions at offset 0 s / +5 s / +30 s / +10 min": "0 / 1456 / 8652 / 171816",
+    "inversions per camera-B read at +30 s / +10 min": "1.75 / 34.7",
+    "reads/day/camera retained PAST the 14-day line if retention keyed on a -10 min camera clock": "34 reads, each up to 10 min over policy",
+    "reads/day/camera deleted EARLY on a +10 min clock": "34 (non-hit reads; verified hits are held separately and unaffected)",
+    "chain effect": "none \u2014 Sentinel appends in server-receipt order; a bad camera clock cannot rewrite or reorder the chain",
+    "reading": "at Cabot's per-camera rate, reads arrive every ~17 s, so even a +30 s skew \u2014 well inside what an undisciplined camera clock drifts to \u2014 inverts a visible share of a two-camera evidence timeline. Retention must key on server receipt time, and skew must be measured by camera NTP discipline, not inferred from arrivals (S2 shows arrivals can legitimately be hours late)."
+  },
+  "S5 OCR degradation + false-alert base rate": {
+    "assumptions": "rain accuracy day 0.90 / night 0.84 (new); rain 15% of hours; alert verification takes 3 min of an officer's time per alert",
+    "weighted OCR accuracy: clear-weather baseline vs weather mix": "0.9450 vs 0.9355",
+    "true passes caught per 6 months (of 688): baseline / weather mix / all-rain-night": "650 / 644 / 578",
+    "extra true passes MISSED by weather vs baseline": "6.5 per 6 months",
+    "FALSE-ALERT MATH at Cabot's true rate of 8.56/100k reads": "",
+    "  false-alert rate 0.01% -> false alerts per 100k reads": "10 (vs 8.56 true) = 1.17 false per true alert",
+    "  false-alert rate 0.01% -> per day citywide": "4.44 false alerts/day, 13 min/day of verification time",
+    "  false-alert rate 0.1% -> false alerts per 100k reads": "100 (vs 8.56 true) = 11.7 false per true alert",
+    "  false-alert rate 0.1% -> per day citywide": "44.4 false alerts/day, 2.2 officer-hours/day of verification",
+    "reading": "weather costs a handful of missed passes; the false-alert rate costs the whole alert queue. At 0.1% false, officers would verify ~12 false alerts for every true one and the verify-before-stop step \u2014 the control everything else rests on \u2014 becomes the thing a tired operator starts skipping. The pilot accuracy protocol must measure the false-alert rate per 100k reads, not just OCR accuracy."
+  },
+  "S6 hot-list staleness, 48 h sync outage": {
+    "assumptions": "list churn 2%/day of 220 entries removed upstream",
+    "entries removed upstream during the outage": "8.7",
+    "true passes citywide during 48 h": "7.6",
+    "FAIL OPEN: expected stale-list alerts (removed entries still alerting)": "0.30 per outage; simulated mean 0.24; P(at least one) 22% over 300 simulated outages",
+    "FAIL OPEN: passes on entries ADDED upstream (missed under both designs when the list is local)": "~0.30",
+    "FAIL CLOSED: legitimate queries blocked in 48 h": "Tier 2 8 + Tier 3 applications 1 = 9 delayed (not lost \u2014 they re-run when sync returns); stale alerts 0",
+    "reading": "fail-closed converts a safety failure (acting on a recalled warrant) into an availability cost (expected ~13 delayed queries per 48 h outage \u2014 9 in this seeded run \u2014 each recoverable). Fail-open is silent until the day it isn't: most outages produce no stale alert, which is exactly why the failure would go unnoticed until one does. That asymmetry is why the design fails closed."
+  },
+  "S7 emergency-flag normalization (K8)": {
+    "assumptions": "emergency use creeps +5%/month compounded from 2.6999999999999997/month baseline; K8 threshold operationalized as emergencies > 25% of Tier 3 actions in a month",
+    "analytic: emergencies reach the K8 share at month": "19.5 (i.e., during month 20)",
+    "simulated: first month over the K8 share": "month 15",
+    "simulated: first SUSTAINED trip (2 consecutive months)": "months 15-16",
+    "analytic: emergencies exceed ALL granted Tier 3 searches at month": "38.7",
+    "simulated: first month emergencies > granted Tier 3": "month 33",
+    "emergency uses/month at month 12 / 24 / 36": "4.8 / 8.7 / 15.6",
+    "reading": "5%/month creep is invisible month to month and trips K8 in under two years. Nothing about the creep announces itself \u2014 K8 only fires if the monthly report COMPUTES the emergency share. A kill condition nobody calculates is not a kill condition."
+  },
+  "S8 full run -> \u00a7 12-12-1805 six-month report": {
+    "window": "181 days, 9 cameras, full volume (the Cabot record window \u2014 expected values are CPD's own reported figures)",
+    "assumption": "prosecutions = 45% of arrests filed in-period (no Cabot source; the number must come from a prosecutor feedback loop in production \u2014 see findings)",
+    "plates scanned: observed vs CPD reported": "8,034,485 vs 8,040,000",
+    "true hot-list passes drawn (pre-OCR) vs CPD reported matches": "663 vs 688 (8.25/100k vs the 8.56 anchor \u2014 this is the like-for-like line)",
+    "confirmed matches (post-OCR; the v0.9 model applies its 0.945 OCR factor after the pass, so this line runs ~5.5% under the pass count by construction)": "625 (expected ~627)",
+    "matches not correlating to an alert (wrong-state, rejected at verification)": "130",
+    "arrests: observed vs CPD reported": "20 vs 19",
+    "prosecutions (assumption-driven)": "8",
+    "confirmed matches per list": "arrest warrant: 160; custom (gated): 56; missing / endangered: 89; stolen plate: 103; stolen vehicle: 217",
+    "reads purged by retention before report regeneration": "7,410,876 of 8,034,485",
+    "report identical after purge": "True (built from counters + plate-free outcomes only; outcome records carry no plate and no plate_ref)"
+  },
+  "S9 legal-hold lifecycle": {
+    "checks": "11/11 PASS",
+    "  [PASS] retention blocked on a VERIFIED hit (no release)": "",
+    "  [PASS] retention blocked while HELD": "",
+    "  [PASS] release attempted before export/sign-off": "blocked: release requires prosecutor sign-off",
+    "  [PASS] export bundle hash verification": "",
+    "  [PASS] tampered bundle detected": "",
+    "  [PASS] restored bundle verifies again": "",
+    "  [PASS] retention blocked while EXPORTED (no sign-off yet)": "",
+    "  [PASS] release WITH sign-off succeeds": "",
+    "  [PASS] retention deletes the RELEASED hit": "",
+    "  [PASS] Sentinel chain verifies end-to-end": "",
+    "  [PASS] no plate text anywhere in the chain": "plate_ref is HMAC-SHA256 only",
+    "final state": "DELETED",
+    "reading": "retention is not a timer on evidence. The hit survived four deletion attempts across four states and was deleted exactly once \u2014 after export, sign-off, and release, each step chained."
+  }
+}

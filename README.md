@@ -6,6 +6,10 @@ Cabot, Arkansas (pop. ~26k) currently leases 9 Flock ALPR cameras (8 Falcon + 1 
 
 This repository is the working design for a possible city-owned alternative: commodity LPR cameras, open-source detection/OCR, all data on a city server, designed in the open by a Citizens Commission, and implemented only if the City Council separately authorizes it after a public hearing. NOCTUA is a codename (the little owl, *Athene noctua*); the formal documents keep their plain titles.
 
+## NOCTUA 1.0 (Nov 24, 2026)
+
+The production rewrite lives in [`1.0/`](1.0/): Janus 1.0 (two-key Tier 3, evidence export, cumulative statutory-report counters, dead-man heartbeats, provisioning/backup/restore tooling, Frigate bridge, verified demo dataset), the network/install/operations guides, CONTINGENCIES and CANT-DO, the failure-mode simulator, and the integration record explaining what the simulation findings changed. The v0.9 reference build below it in this repo is preserved as history.
+
 ## The gates come first
 
 Nothing in this design goes live until, in order:
