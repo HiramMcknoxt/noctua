@@ -1,0 +1,100 @@
+# Frigate NVR + LPR configuration TEMPLATE for NOCTUA.
+# Frigate (open source, AGPL) does detection + plate OCR on the camera
+# streams and POSTs each read to Janus at http://janus:8080/reads with the
+# ingest key. Janus is the only system of record — Frigate keeps no
+# searchable plate database of its own in this design.
+#
+# WRITE-ONLY SENSOR RULE (council round, Nov. 23, 2026 — this is a design
+# requirement, not a preference):
+#   * Frigate is a sensor, not a console. NO human accounts are created
+#     on Frigate; nobody browses its UI or queries its API in operations.
+#   * docker-compose.yml binds every Frigate port to 127.0.0.1 only.
+#     Maintenance reaches it through an SSH tunnel to the host.
+#   * Janus is the ONLY lasting store of plate data. Frigate's own
+#     recordings/snapshots are a short buffer, capped at 14 days by the
+#     record/snapshots blocks below — the same horizon as Janus, so the
+#     14-day promise is true at the media layer too.
+#   * Ingest to Janus authenticates with the system-role key
+#     (X-Noctua-User: ingest.<host> + its key) — never a human's key,
+#     never unauthenticated.
+#
+# Per camera: replace HOST with the address from cameras.yaml and the
+# credentials with the .env values (Frigate supports {FRIGATE_RTSP_USER}
+# style env substitution per its docs — verify against the pinned version
+# at deploy time).
+
+mqtt:
+  enabled: false
+
+# Media retention — Frigate's copies must die on the same schedule as
+# Janus's records, or the 14-day promise is false at the media layer.
+# Keys below (record.retain.days, snapshots.retain.default) are the
+# documented Frigate keys; CONFIRM them against the pinned 0.16 config
+# reference during the deploy-time pin verification this template
+# already requires — if the pinned build spells them differently, fix
+# the spelling, not the 14-day values.
+record:
+  enabled: true
+  retain:
+    days: 14
+
+snapshots:
+  enabled: true
+  retain:
+    default: 14
+
+detectors:
+  cpu1:
+    type: cpu   # production: Coral/OpenVINO accelerator per the hardware spec
+
+model:
+  path: /config/model_cache/lpr_model.onnx   # placeholder — pin at deploy time
+
+lpr:
+  enabled: true
+  # Frigate 0.16+ LPR: recognition runs on detected plates; webhook below
+  # ships reads to Janus. Thresholds are STARTING points — the pilot's
+  # hand-checked accuracy protocol (spec Appendix C) tunes them.
+  min_plate_width: 60
+  recognition_threshold: 0.85
+
+go2rtc:
+  streams:
+    cam01: rtsp://{FRIGATE_CAM01_USER}:{FRIGATE_CAM01_PASS}@10.10.1.101/axis-media/media.amp
+    cam02: rtsp://{FRIGATE_CAM02_USER}:{FRIGATE_CAM02_PASS}@10.10.1.102/axis-media/media.amp
+    cam03: rtsp://{FRIGATE_CAM03_USER}:{FRIGATE_CAM03_PASS}@10.10.1.103/axis-media/media.amp
+    # …repeat the pattern for cam04–cam09 from cameras.yaml…
+
+cameras:
+  cam01:
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/cam01
+          roles: [detect]
+    detect:
+      width: 1920
+      height: 1080
+      fps: 5
+  cam02:
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/cam02
+          roles: [detect]
+    detect:
+      width: 1920
+      height: 1080
+      fps: 5
+  cam03:
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/cam03
+          roles: [detect]
+    detect:
+      width: 1920
+      height: 1080
+      fps: 5
+  # …cam04–cam09 identical blocks…
+
+# Webhook to Janus (Frigate automation / HTTP API integration point —
+# in the reference build a tiny bridge service polls Frigate's events API
+# and POSTs plate reads to Janus; see README "Known gaps" #2).

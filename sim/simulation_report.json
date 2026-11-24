@@ -1,0 +1,141 @@
+{
+  "simulation": "Project NOCTUA \u2014 90-day, 3-camera pilot, volume scale 0.25 (frequency unscaled)",
+  "seed": 20261123,
+  "cabot_record_rates": {
+    "scans_per_camera_day": 4935.5,
+    "match_rate_per_100k_reads": 8.56,
+    "one_match_per_reads": 11686,
+    "matches_per_day_citywide_9cam": 3.8,
+    "expected_matches_per_day_pilot_3cam": 1.267
+  },
+  "results": {
+    "simulated_reads": 333033,
+    "full_scale_equivalent_reads": 1332132,
+    "ocr_accuracy_observed": 0.9452,
+    "true_hotlist_passes": 28,
+    "expected_matches_at_cabot_rate": 28.5,
+    "alerts_raised": 32,
+    "missed_by_ocr_misread": 1,
+    "verified_hits": 27,
+    "rejected_wrong_state": 5,
+    "observed_matches_per_100k": 8.41,
+    "stolen_recoveries_modelled": 1,
+    "arrests_modelled": 1,
+    "reads_deleted_by_retention": 282193,
+    "reads_still_inside_14d_window": 50840,
+    "hit_records_deleted_after_hold": 16,
+    "hit_records_still_on_hold": 11
+  },
+  "janus_front_door": {
+    "tier1_alerts": 32,
+    "tier2_ok": 541,
+    "tier3_granted": 56,
+    "tier3_denied": 8,
+    "tier3_emergency": 6,
+    "blocked_invalid_case": 41,
+    "blocked_no_auth": 15,
+    "blocked_shared_account": 5
+  },
+  "sentinel_log": {
+    "entries": 809,
+    "witness_publications": 12,
+    "chain_verified": true,
+    "first_bad_entry": null,
+    "final_root_hash": "cb8a5d2b5040df84..."
+  },
+  "sample_hit_events": [
+    {
+      "day": 5,
+      "plate": "RHY730",
+      "state": "AR",
+      "category": "arrest warrant",
+      "outcome": "VERIFIED HIT"
+    },
+    {
+      "day": 9,
+      "plate": "066KAN",
+      "state": "AR",
+      "category": "stolen plate",
+      "outcome": "VERIFIED HIT"
+    },
+    {
+      "day": 20,
+      "plate": "285VXB",
+      "state": "AR",
+      "category": "stolen plate",
+      "outcome": "VERIFIED HIT"
+    },
+    {
+      "day": 21,
+      "plate": "UKB093",
+      "state": "AR",
+      "category": "arrest warrant",
+      "outcome": "VERIFIED HIT"
+    },
+    {
+      "day": 21,
+      "plate": "967XAT",
+      "state": "MS",
+      "category": "missing / endangered",
+      "outcome": "REJECTED at verification: right number, wrong state"
+    },
+    {
+      "day": 22,
+      "plate": "VSG898",
+      "state": "AR",
+      "category": "stolen vehicle",
+      "outcome": "VERIFIED HIT"
+    },
+    {
+      "day": 44,
+      "plate": "168HLF",
+      "state": "AR",
+      "category": "custom (gated)",
+      "outcome": "VERIFIED HIT"
+    },
+    {
+      "day": 45,
+      "plate": "041PYT",
+      "state": "AR",
+      "category": "stolen plate",
+      "outcome": "VERIFIED HIT"
+    },
+    {
+      "day": 46,
+      "plate": "RPF730",
+      "state": "AR",
+      "category": "stolen plate",
+      "outcome": "VERIFIED HIT"
+    },
+    {
+      "day": 47,
+      "plate": "TKM382",
+      "state": "AR",
+      "category": "stolen plate",
+      "outcome": "VERIFIED HIT"
+    },
+    {
+      "day": 48,
+      "plate": "297HGC",
+      "state": "AR",
+      "category": "stolen vehicle",
+      "outcome": "VERIFIED HIT"
+    },
+    {
+      "day": 49,
+      "plate": "BAG130",
+      "state": "AR",
+      "category": "arrest warrant",
+      "outcome": "VERIFIED HIT"
+    }
+  ],
+  "assumptions_not_cabot_facts": {
+    "ocr_accuracy_weighted": 0.9450000000000001,
+    "wrong_state_per_true_hit": 0.18,
+    "hotlist_size": 220,
+    "tier2_per_day": 6.0,
+    "tier3_per_day": 0.7,
+    "tier3_grant_rate": 0.85,
+    "investigation_hold_days": 30
+  }
+}

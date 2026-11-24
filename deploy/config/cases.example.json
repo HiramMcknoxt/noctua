@@ -1,0 +1,1 @@
+{"_comment":"Open case numbers Janus will accept. In production this file is regenerated nightly from the records system export; here it is a static list so the demo runs. A case number not in this list fails validation and the attempt is logged.","open_cases":["2027-1000","2027-1001","2027-1002","2027-1003"]}

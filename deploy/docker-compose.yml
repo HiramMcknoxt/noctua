@@ -1,0 +1,85 @@
+# NOCTUA — reference deployment (Cabot pilot spec, Nov. 23, 2026)
+#
+#   docker compose up -d        -> janus + frigate + postgres-less (SQLite)
+#   Janus is the system of record. Frigate only detects and forwards.
+#
+# Before first run:
+#   1. cp .env.example .env  and fill it in (camera creds, audit key)
+#   2. cp config/users.example.json config/users.json  and set real key hashes
+#      (generate a key:  openssl rand -hex 24   ·   hash it:  printf %s "$KEY" | sha256sum)
+#   3. cp config/cases.example.json config/cases.json  (or wire the nightly RMS export)
+#   4. Edit config/cameras.yaml — IPs + enabled flags
+#   5. docker compose up -d && curl localhost:8080/health
+
+services:
+  janus:
+    build: ./janus
+    container_name: noctua-janus
+    restart: unless-stopped
+    environment:
+      NOCTUA_DB: /data/noctua.db
+      NOCTUA_USERS: /config/users.json
+      NOCTUA_CASES: /config/cases.json
+      NOCTUA_PORT: "8080"
+      RETENTION_DAYS: "${RETENTION_DAYS:-14}"
+      HOLD_DAYS: "${HOLD_DAYS:-30}"
+      # Streamed copy of the Sentinel chain (see README hardening section).
+      # Point this at a Clerk/auditor-controlled mount in production —
+      # a path only this server can write is a weaker witness.
+      NOCTUA_SENTINEL_SINK: /data/sentinel-sink.jsonl
+    volumes:
+      - noctua-data:/data
+      - ./config:/config:ro
+    ports:
+      - "127.0.0.1:8080:8080"   # localhost only; put the console / a reverse
+                                # proxy in front for department access — do
+                                # NOT expose Janus to the public internet.
+
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:0.16.0  # pin verified at deploy time
+    container_name: noctua-frigate
+    restart: unless-stopped
+    privileged: true
+    environment:
+      FRIGATE_CAM01_USER: "${CAM01_USER}"
+      FRIGATE_CAM01_PASS: "${CAM01_PASS}"
+      FRIGATE_CAM02_USER: "${CAM02_USER}"
+      FRIGATE_CAM02_PASS: "${CAM02_PASS}"
+      FRIGATE_CAM03_USER: "${CAM03_USER}"
+      FRIGATE_CAM03_PASS: "${CAM03_PASS}"
+      # …CAM04–CAM09 likewise…
+    volumes:
+      - ./config/frigate.config.yml:/config/config.yml
+      - frigate-media:/media/frigate
+    ports:
+      # LOCKDOWN (council round, Nov. 23, 2026): every Frigate port is
+      # bound to localhost. Frigate's UI and API are a second, unlogged
+      # front door to plate data if any human can reach them — in this
+      # design Frigate is a write-only sensor: no human accounts on it,
+      # nobody browses it, Janus is the only lasting store. Maintenance
+      # access is via SSH tunnel to the host, never a published port.
+      - "127.0.0.1:5000:5000"   # Frigate UI/API — localhost only
+      - "127.0.0.1:8554:8554"   # RTSP restream — localhost only
+    depends_on:
+      - janus
+
+  # Nightly retention (the shredder) — a compose one-shot you trigger from
+  # host cron:  0 3 * * *  docker compose -f /srv/noctua/docker-compose.yml \
+  #                          run --rm retention
+  retention:
+    build: ./janus
+    container_name: noctua-retention
+    entrypoint: ["python3", "/scripts/retention.py"]
+    environment:
+      NOCTUA_DB: /data/noctua.db
+      RETENTION_DAYS: "${RETENTION_DAYS:-14}"
+      HOLD_DAYS: "${HOLD_DAYS:-30}"
+      NOCTUA_SENTINEL_SINK: /data/sentinel-sink.jsonl
+    volumes:
+      - noctua-data:/data
+      - ./scripts:/scripts:ro
+    profiles: ["jobs"]
+
+volumes:
+  noctua-data:
+  frigate-media:

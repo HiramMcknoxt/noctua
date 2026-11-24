@@ -1,0 +1,90 @@
+# NOCTUA camera inventory — the ONLY file you edit to bring sites online.
+#
+# The nine existing Cabot sites. Locations are the community-mapped points
+# (OpenStreetMap snapshot, Nov. 15, 2026) — CONFIRM each against the CPD
+# inventory (Chief / FOIA) before mounting anything, and note the Home
+# Depot Dr / Going Dr ownership question in the runbook.
+#
+# For each site: set `enabled: true`, fill `host` (the camera's IP on the
+# city VLAN), and put its credentials in .env as CAM01_USER / CAM01_PASS …
+# (never write passwords in this file — it is meant to be shareable with
+# the Commission). `model` is the NOCTUA replacement unit to mount
+# (city-owned LPR camera, e.g. Axis Q1800-LE class), NOT the leased Flock
+# unit currently there.
+
+cameras:
+  - id: CAM-01
+    location: "1389 W Main St (by Ridout Lumber)"
+    existing_unit: "Flock Falcon (leased)"
+    model: "Axis Q1800-LE (or approved equal)"
+    host: "10.10.1.101"        # <-- PLACEHOLDER: camera IP on city VLAN
+    credentials_env: "CAM01"   # uses CAM01_USER / CAM01_PASS from .env
+    enabled: false
+
+  - id: CAM-02
+    location: "Bill Foster Memorial Hwy (US-67)"
+    existing_unit: "Flock Falcon (leased)"
+    model: "Axis Q1800-LE (or approved equal)"
+    host: "10.10.1.102"
+    credentials_env: "CAM02"
+    enabled: false
+
+  - id: CAM-03
+    location: "2109 N 2nd St"
+    existing_unit: "Flock Falcon (leased)"
+    model: "Axis Q1800-LE (or approved equal)"
+    host: "10.10.1.103"
+    credentials_env: "CAM03"
+    enabled: false
+
+  - id: CAM-04
+    location: "3141 S 2nd St"
+    existing_unit: "Flock Falcon (leased)"
+    model: "Axis Q1800-LE (or approved equal)"
+    host: "10.10.1.104"
+    credentials_env: "CAM04"
+    enabled: false
+
+  - id: CAM-05
+    location: "210 S Rockwood Dr"
+    existing_unit: "Flock Falcon (leased)"
+    model: "Axis Q1800-LE (or approved equal)"
+    host: "10.10.1.105"
+    credentials_env: "CAM05"
+    enabled: false
+
+  - id: CAM-06
+    location: "2899 Kerr Station Rd"
+    existing_unit: "Flock Falcon (leased)"
+    model: "Axis Q1800-LE (or approved equal)"
+    host: "10.10.1.106"
+    credentials_env: "CAM06"
+    enabled: false
+
+  - id: CAM-07
+    location: "Church Dr"
+    existing_unit: "Flock Falcon (leased)"
+    model: "Axis Q1800-LE (or approved equal)"
+    host: "10.10.1.107"
+    credentials_env: "CAM07"
+    enabled: false
+
+  - id: CAM-08
+    location: "Home Depot Dr"
+    existing_unit: "Flock (leased) — OWNERSHIP UNVERIFIED: may be Home Depot's own unit"
+    model: "Axis Q1800-LE (or approved equal)"
+    host: "10.10.1.108"
+    credentials_env: "CAM08"
+    enabled: false
+
+  - id: CAM-09
+    location: "748 Going Dr"
+    existing_unit: "Flock (leased) — OWNERSHIP UNVERIFIED: may be Home Depot's own unit"
+    model: "Axis Q1800-LE (or approved equal)"
+    host: "10.10.1.109"
+    credentials_env: "CAM09"
+    enabled: false
+
+# Fleet note: the Oct. 19, 2026 packet invoices total 8x Falcon + 1x Flex
+# (24-month tranches, $27,500 invoiced in 2026). Which site holds the Flex
+# is not in the public record — do not assert a per-site Flock model.

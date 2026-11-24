@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project NOCTUA — Cabot ALPR Pilot Simulation</title>
+<style>
+  :root{
+    --bg:#070b16; --bg2:#0b1120; --panel:rgba(21,28,46,.82); --panel-solid:#121a2e;
+    --line:rgba(120,140,180,.18); --line2:rgba(120,140,180,.32);
+    --txt:#eef2fa; --mut:#93a1bb; --mut2:#6b7a94;
+    --gold:#e6b93e; --gold2:#f5d67a; --grn:#3fb96f; --red:#f26d6d; --blu:#5ea8ff; --pur:#c09aff;
+    --radius:16px; --shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;color:var(--txt);
+    font:15px/1.5 "Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:
+      radial-gradient(1100px 500px at 85% -10%, rgba(230,185,62,.10), transparent 60%),
+      radial-gradient(900px 600px at -10% 10%, rgba(94,168,255,.10), transparent 55%),
+      linear-gradient(180deg,var(--bg2),var(--bg));
+    min-height:100vh;}
+  /* ---------- top bar ---------- */
+  .topbar{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px);
+    background:rgba(7,11,22,.78);border-bottom:1px solid var(--line)}
+  .topbar-in{max-width:1440px;margin:0 auto;padding:12px 20px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  .brand{display:flex;gap:13px;align-items:center;min-width:0}
+  .brand svg{flex:none;filter:drop-shadow(0 4px 14px rgba(230,185,62,.35))}
+  .brand h1{font-size:21px;margin:0;letter-spacing:2.5px;font-weight:800}
+  .brand h1 .gold{background:linear-gradient(90deg,var(--gold),var(--gold2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .brand .tag{color:var(--mut);font-size:12.5px;margin-top:1px}
+  .controls{margin-left:auto;display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+  button{font:inherit;font-size:13.5px;font-weight:600;color:var(--txt);cursor:pointer;
+    background:rgba(255,255,255,.04);border:1px solid var(--line2);border-radius:999px;
+    padding:8px 16px;transition:all .15s ease}
+  button:hover{border-color:var(--gold);transform:translateY(-1px)}
+  button:active{transform:translateY(0)}
+  button.primary{background:linear-gradient(135deg,var(--gold),#c9932b);color:#191203;border-color:transparent;
+    padding:9px 20px;box-shadow:0 6px 18px rgba(230,185,62,.35)}
+  button.primary:hover{box-shadow:0 8px 22px rgba(230,185,62,.5)}
+  button.good{border-color:rgba(63,185,111,.6);color:#7fe0a4}
+  button.good:hover{background:rgba(63,185,111,.14);border-color:var(--grn)}
+  button.bad{border-color:rgba(242,109,109,.55);color:#ff9c9c}
+  button.bad:hover{background:rgba(242,109,109,.12);border-color:var(--red)}
+  select,input[type=text]{font:inherit;font-size:13.5px;background:rgba(255,255,255,.05);color:var(--txt);
+    border:1px solid var(--line2);border-radius:10px;padding:8px 10px;outline:none}
+  select:focus,input:focus{border-color:var(--gold)}
+  input[type=checkbox]{accent-color:var(--gold);width:16px;height:16px;vertical-align:-3px}
+  .daypill{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.04);
+    border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:13px;color:var(--mut)}
+  .daypill b{color:var(--txt);font-size:14px}
+  .prog{width:110px;height:7px;border-radius:99px;background:rgba(255,255,255,.09);overflow:hidden}
+  .prog i{display:block;height:100%;width:0%;border-radius:99px;
+    background:linear-gradient(90deg,var(--gold),var(--gold2));transition:width .45s ease}
+  .disclaimer{max-width:1440px;margin:0 auto;padding:10px 20px 0;color:var(--mut);font-size:12.5px}
+  .disclaimer b{color:var(--gold2)}
+  /* ---------- layout ---------- */
+  main{max-width:1440px;margin:0 auto;padding:16px 20px 30px;display:grid;
+    grid-template-columns:repeat(12,1fr);gap:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:18px;box-shadow:var(--shadow)}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:1.6px;color:var(--mut);
+    margin:0 0 4px;display:flex;align-items:center;gap:8px}
+  .card h2 .ic{font-size:15px;letter-spacing:0}
+  .card .hint{color:var(--mut2);font-size:12.5px;margin:0 0 12px}
+  .span3{grid-column:span 3}.span4{grid-column:span 4}.span5{grid-column:span 5}
+  .span6{grid-column:span 6}.span7{grid-column:span 7}.span8{grid-column:span 8}.span12{grid-column:span 12}
+  @media(max-width:1080px){.span3,.span4,.span5,.span6,.span7,.span8{grid-column:span 12}}
+  /* ---------- KPI cards ---------- */
+  .kpis{grid-column:span 12;display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  @media(max-width:1080px){.kpis{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:560px){.kpis{grid-template-columns:1fr}}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:16px 18px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+  .kpi::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--ac,var(--blu))}
+  .kpi .k{color:var(--mut);font-size:11.5px;text-transform:uppercase;letter-spacing:1.2px;display:flex;gap:7px;align-items:center}
+  .kpi .v{font-size:31px;font-weight:800;letter-spacing:-.5px;margin-top:3px;font-variant-numeric:tabular-nums}
+  .kpi .s{color:var(--mut2);font-size:12px}
+  .mini{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
+  @media(max-width:700px){.mini{grid-template-columns:repeat(2,1fr)}}
+  .mini .m{background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:12px;padding:9px 12px}
+  .mini .k{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.8px}
+  .mini .v{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums}
+  /* ---------- cameras ---------- */
+  .cam{border:1px solid var(--line);border-radius:13px;padding:12px 14px;margin-bottom:10px;
+    background:rgba(255,255,255,.03);transition:border-color .2s}
+  .cam:hover{border-color:var(--line2)}
+  .cam .nm{font-weight:700;font-size:14px}
+  .cam .cnt{color:var(--mut);font-size:12px}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--grn);
+    margin-right:7px;box-shadow:0 0 0 0 rgba(63,185,111,.5);animation:pulse 2.2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(63,185,111,.45)}70%{box-shadow:0 0 0 8px rgba(63,185,111,0)}100%{box-shadow:0 0 0 0 rgba(63,185,111,0)}}
+  .ticker{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:var(--mut);margin-top:5px;min-height:18px}
+  .ticker b{color:var(--txt)} .mis{color:var(--red);text-decoration:line-through}
+  /* ---------- retention bars ---------- */
+  .bars{display:flex;align-items:flex-end;gap:3px;height:82px;border-bottom:1px solid var(--line);padding-top:8px}
+  .bar{flex:1;background:linear-gradient(180deg,var(--blu),rgba(94,168,255,.45));border-radius:3px 3px 0 0;min-height:3px;transition:height .4s ease}
+  /* ---------- verify game ---------- */
+  .scorebar{display:flex;gap:14px;flex-wrap:wrap;align-items:baseline;background:rgba(255,255,255,.03);
+    border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-size:13.5px}
+  .scorebar b{font-size:16px}
+  .plate{display:inline-block;background:linear-gradient(180deg,#ffffff,#dfe7f2);color:#12233f;
+    border:2px solid #0d1b31;border-radius:8px;font-family:ui-monospace,Menlo,Consolas,monospace;
+    font-weight:800;font-size:20px;letter-spacing:2.5px;padding:4px 14px 2px;text-align:center;
+    box-shadow:0 4px 12px rgba(0,0,0,.35)}
+  .plate small{display:block;font-size:8.5px;letter-spacing:3.5px;color:#33507e;font-weight:700}
+  .hitcard{border:1px solid rgba(230,185,62,.55);border-radius:14px;padding:14px;margin-top:12px;
+    background:linear-gradient(180deg,rgba(230,185,62,.10),rgba(230,185,62,.04));
+    animation:slidein .25s ease}
+  @keyframes slidein{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}
+  .hitcard .row{display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin:8px 0}
+  .hitcard .lbl{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.8px}
+  .empty{color:var(--mut);font-size:13.5px;border:1px dashed var(--line2);border-radius:12px;padding:16px;text-align:center;margin-top:12px}
+  /* ---------- janus / sentinel ---------- */
+  .janus-form{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  #janusOut{margin:11px 0 4px;font-weight:700;min-height:22px}
+  .ok{color:var(--grn)} .no{color:var(--red)}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+  td,th{border-bottom:1px solid var(--line);padding:6px 7px;text-align:left}
+  th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.6px}
+  td:nth-child(2),td:nth-child(4){font-variant-numeric:tabular-nums;font-weight:700}
+  .feed{max-height:308px;overflow:auto;font-size:12px;border:1px solid var(--line);border-radius:12px;background:rgba(0,0,0,.22)}
+  .feed div{padding:6px 10px;border-bottom:1px solid rgba(120,140,180,.09);
+    font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all;color:var(--mut)}
+  .feed .alert{color:var(--gold2)} .feed .block{color:#ff9c9c} .feed .wit{color:var(--pur)} .feed .del{color:#9cc8ff}
+  .small{color:var(--mut);font-size:12.5px}
+  .kbd{font-family:ui-monospace,Menlo,Consolas,monospace;background:rgba(255,255,255,.07);
+    padding:1px 6px;border-radius:5px;font-size:12px;color:var(--gold2)}
+  .rootline{margin-top:10px;font-size:12.5px;color:var(--mut)}
+  .rootline b{color:var(--txt)}
+  /* ---------- report ---------- */
+  .report{display:none;background:linear-gradient(180deg,rgba(63,185,111,.13),rgba(63,185,111,.05));
+    border:1px solid rgba(63,185,111,.55);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
+  .report h2{color:#7fe0a4;font-size:16px;letter-spacing:.4px;text-transform:none;margin:0 0 8px}
+  footer{max-width:1440px;margin:0 auto;padding:0 20px 26px;color:var(--mut2);font-size:12px}
+</style>
+</head>
+<body>
+
+<div class="topbar"><div class="topbar-in">
+  <div class="brand">
+    <img src="data:image/webp;base64,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" alt="Project NOCTUA logo" width="52" height="52" style="border-radius:12px;flex:none;box-shadow:0 4px 14px rgba(230,185,62,.35)">
+    <div>
+      <h1>PROJECT <span class="gold">NOCTUA</span></h1>
+      <div class="tag">Cabot city-owned ALPR pilot — simulation · Janus · Sentinel · 14-day retention</div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="daypill"><span>Day <b id="dayLbl">0</b> / 90</span><span class="prog"><i id="progFill"></i></span></div>
+    <button id="btnRun" class="primary">▶ Run pilot</button>
+    <button id="btnStep">Step 1 day</button>
+    <button id="btnReset">Reset</button>
+    <select id="speed" title="Simulation speed">
+      <option value="2000">Speed · 0.5×</option>
+      <option value="1000" selected>Speed · 1×</option>
+      <option value="350">Speed · 3×</option>
+    </select>
+  </div>
+</div></div>
+
+<p class="disclaimer">A working model of the Nov. 23, 2026 pilot spec. <b>All plates, people, and cases are synthetic</b> — no real data, no cameras. Volume runs at ¼ scale so it stays watchable; the <b>hit frequency is Cabot's real rate</b>, unscaled (rates card below).</p>
+
+<main>
+  <!-- KPI row -->
+  <div class="kpis">
+    <div class="kpi" style="--ac:var(--blu)"><div class="k">📷 Plate reads</div><div class="v" id="sReads">0</div><div class="s">across 3 pilot cameras</div></div>
+    <div class="kpi" style="--ac:var(--gold)"><div class="k">🔔 Hot-list alerts</div><div class="v" id="sAlerts">0</div><div class="s">a lead — never proof</div></div>
+    <div class="kpi" style="--ac:var(--grn)"><div class="k">✅ Verified hits</div><div class="v" id="sHits">0</div><div class="s">characters + state confirmed</div></div>
+    <div class="kpi" style="--ac:var(--pur)"><div class="k">🗑️ Reads deleted</div><div class="v" id="sDeleted">0</div><div class="s">14-day retention job</div></div>
+  </div>
+
+  <!-- Cameras + pipeline detail -->
+  <section class="card span5">
+    <h2><span class="ic">📷</span> Cameras</h2>
+    <p class="hint">3 of the 9 existing sites. No new locations, no expansion.</p>
+    <div id="cams"></div>
+    <p class="small">The ticker shows a <i>sample</i> of reads so you can watch — the counters run the full scaled volume. <span class="mis">Struck-through</span> = an OCR misread sample (0/O, 8/B, 1/I…).</p>
+    <h2 style="margin-top:16px"><span class="ic">🗑️</span> Retention window</h2>
+    <p class="hint">One bar per day of reads. Anything older than 14 days is deleted — automatically, and logged.</p>
+    <div class="bars" id="bars"></div>
+    <div class="mini" style="grid-template-columns:repeat(2,1fr)">
+      <div class="m"><div class="k">Inside 14-day window</div><div class="v" id="sWindow">0</div></div>
+      <div class="m"><div class="k">OCR accuracy</div><div class="v" id="sOcr">—</div></div>
+    </div>
+  </section>
+
+  <!-- Verify game -->
+  <section class="card span7">
+    <h2><span class="ic">🔍</span> Verify it — you are the duty officer</h2>
+    <p class="hint">Every alert lands here first. Compare the plate <b>photo</b> against the system read: characters <i>and</i> state must both match before anyone gets stopped.</p>
+    <div class="scorebar" id="score">Your record: <b>0</b> correct · <b>0</b> bad confirms · <b>0</b> missed hits</div>
+    <div id="hitQueue"><p class="empty" id="noAlerts">No pending alerts. Press <b>Run pilot</b> — at Cabot's real frequency a 3-camera pilot sees ≈1.27 hot-list passes a day, so most days are quiet. That quiet <i>is</i> the finding.</p></div>
+    <div class="mini">
+      <div class="m"><div class="k">Wrong-state rejects</div><div class="v" id="sWrongState">0</div></div>
+      <div class="m"><div class="k">Hits lost to OCR misread</div><div class="v" id="sMissed">0</div></div>
+      <div class="m"><div class="k">Why it matters</div><div style="font-size:12.5px;color:var(--mut)">A number-only match sends officers after innocent drivers. State + characters, every time.</div></div>
+      <div class="m"><div class="k">Card mix</div><div style="font-size:12.5px;color:var(--mut)">Enriched for practice (labelled) — the background alert rate stays at Cabot's frequency.</div></div>
+    </div>
+  </section>
+
+  <!-- Janus -->
+  <section class="card span6">
+    <h2><span class="ic">🚪</span> Janus — the one front door</h2>
+    <p class="hint">No direct database access, ever. Try to get past it: a bogus case, the shared login, or a Tier 3 historical search with no judge's authorization.</p>
+    <div class="janus-form">
+      <select id="jUser">
+        <option value="det.okafor">det.okafor (named)</option>
+        <option value="ofc.chen">ofc.chen (named)</option>
+        <option value="shared">shared (generic login)</option>
+      </select>
+      <select id="jTier">
+        <option value="2">Tier 2 — contemporaneous</option>
+        <option value="3">Tier 3 — historical search</option>
+      </select>
+      <input type="text" id="jCase" placeholder="Case no. e.g. 2027-1001" size="18">
+      <label class="small"><input type="checkbox" id="jAuth"> Judicial authorization</label>
+      <button id="btnJanus" class="primary">Run query</button>
+    </div>
+    <p class="small">Valid pilot cases run <span class="kbd">2027-1000</span> – <span class="kbd">2027-1399</span>. Simulated officers also use Janus every day — their traffic accrues below, blocks included.</p>
+    <div id="janusOut"></div>
+    <table>
+      <tr><th>Allowed</th><th></th><th>Blocked (and logged)</th><th></th></tr>
+      <tr><td>Tier 2 queries</td><td id="jT2">0</td><td>Invalid case number</td><td id="jBCase">0</td></tr>
+      <tr><td>Tier 3 granted</td><td id="jT3">0</td><td>Tier 3, no authorization</td><td id="jBAuth">0</td></tr>
+      <tr><td>Tier 3 denied by judge</td><td id="jT3D">0</td><td>Shared / generic account</td><td id="jBShared">0</td></tr>
+      <tr><td>Tier 3 emergency</td><td id="jT3E">0</td><td>Your attempts</td><td id="jMine">0</td></tr>
+    </table>
+  </section>
+
+  <!-- Sentinel -->
+  <section class="card span6">
+    <h2><span class="ic">🛡️</span> Sentinel — the witnessed audit log</h2>
+    <p class="hint">Every action hashes itself to the entry before it. Each week the root hash is published to the City Clerk and a public repo — tamper-evident <i>because someone outside checks</i>.</p>
+    <div style="display:flex;gap:9px;align-items:center;margin-bottom:11px;flex-wrap:wrap">
+      <button id="btnVerify" class="primary">Verify chain</button>
+      <span id="verifyOut" class="small">Recomputes every hash in the chain, live.</span>
+    </div>
+    <div class="feed" id="logFeed"></div>
+    <p class="rootline">Entries <b id="logCount">0</b> · Witness publications <b id="witCount">0</b> · Current root <span class="kbd" id="rootHash">GENESIS</span></p>
+  </section>
+
+  <!-- Rates -->
+  <section class="card span12">
+    <h2><span class="ic">📊</span> Locked to Cabot's record — not invented</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:6px 34px">
+      <table>
+        <tr><td>CPD scans, Jan 1–Jun 30 2026 (9 cams)</td><td>8,040,000</td></tr>
+        <tr><td>CPD matches in that period</td><td>688</td></tr>
+        <tr><td>Scans / camera / day</td><td>4,935.5</td></tr>
+      </table>
+      <table>
+        <tr><td>Match frequency</td><td>8.56 / 100k reads</td></tr>
+        <tr><td>Pilot expectation (3 cams)</td><td>1.27 matches / day</td></tr>
+        <tr><td>This sim (¼ volume, 90 days)</td><td>≈28.5 expected matches</td></tr>
+      </table>
+    </div>
+    <p class="small" style="margin-bottom:0">Source: CPD figures in the Oct. 19, 2026 council packet History File (audited Nov. 2026); also 7 stolen vehicles recovered and 19 arrests in that period. <b style="color:var(--txt)">Labelled assumptions, not Cabot facts:</b> OCR accuracy 94.5% weighted (96% day / 91% night), hot list of 220, Tier 2 demand ≈6/day, Tier 3 applications ≈0.7/day at an 85% grant rate.</p>
+  </section>
+
+  <section class="span12 report" id="report"></section>
+</main>
+<footer>Project NOCTUA — No Outsourcing · City-Tracked · Unshared Access. Simulation only; the auditable Python engine (noctua_sim.py) produced the reference run behind this design.</footer>
+
+<script>
+"use strict";
+/* ============ Cabot record rates (sourced — see rates card) ============ */
+const P_MATCH = 688/8040000;                 // 8.56 per 100k reads
+const SCANS_CAM_DAY = 8040000/181/9;         // 4,935.5
+const PILOT_CAMS = 3, PILOT_DAYS = 90, SCALE = 0.25, RETENTION = 14;
+const P_OCR = 0.945, WRONG_STATE_PER_HIT = 0.18, HOTLIST_N = 220;
+/* Seeded RNG so a run is reproducible */
+let _s = 20261123;
+function rnd(){_s|=0;_s=_s+0x6D2B79F5|0;let t=Math.imul(_s^_s>>>15,1|_s);
+  t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}
+function poisson(l){const L=Math.exp(-l);let k=0,p=1;do{k++;p*=rnd();}while(p>L);return k-1;}
+function binom(n,p){let s=0;for(let i=0;i<40;i++){} // (aggregate via normal approx for big n)
+  const mean=n*p, sd=Math.sqrt(n*p*(1-p));let x=Math.round(mean+sd*(rnd()+rnd()+rnd()-1.5)*2);
+  return Math.max(0,Math.min(n,x));}
+const LET="ABCDEFGHJKLMNPRSTUVWXYZ", DIG="0123456789";
+function plateBody(){let b="";if(rnd()<0.5){for(let i=0;i<3;i++)b+=LET[Math.floor(rnd()*LET.length)];
+  for(let i=0;i<3;i++)b+=DIG[Math.floor(rnd()*10)];}else{for(let i=0;i<3;i++)b+=DIG[Math.floor(rnd()*10)];
+  for(let i=0;i<3;i++)b+=LET[Math.floor(rnd()*LET.length)];}return b;}
+const CONF={"O":"0","0":"O","8":"B","B":"8","1":"I","I":"1","5":"S","S":"5"};
+function misread(b){const ix=[];for(let i=0;i<b.length;i++)if(CONF[b[i]])ix.push(i);
+  if(!ix.length)return b;const i=ix[Math.floor(rnd()*ix.length)];return b.slice(0,i)+CONF[b[i]]+b.slice(i+1);}
+const CATS=["stolen vehicle","stolen vehicle","stolen vehicle","stolen plate","stolen plate",
+  "arrest warrant","arrest warrant","arrest warrant","missing / endangered","custom (gated)"];
+const hotlist=[];for(let i=0;i<HOTLIST_N;i++)hotlist.push({body:plateBody(),state:"AR",cat:CATS[Math.floor(rnd()*CATS.length)]});
+const CAMS=[{id:"CAM-01",nm:"Entry / exit chokepoint",reads:0,last:[]},
+            {id:"CAM-02",nm:"High-speed site (hard case)",reads:0,last:[]},
+            {id:"CAM-03",nm:"Slow approach (easy case)",reads:0,last:[]}];
+/* ============ State ============ */
+let day=0, running=false, timer=null;
+let S, log, prevHash, logQueue;
+function freshState(){return{reads:0,ocrOk:0,alerts:0,passes:0,hits:0,wrongState:0,missed:0,deleted:0,
+  buckets:[],holds:[],score:{ok:0,bad:0,miss:0},
+  janus:{t2:0,t3:0,t3d:0,t3e:0,bCase:0,bAuth:0,bShared:0,mine:0},wit:0,autoResolved:0};}
+function reset(){day=0;S=freshState();log=[];prevHash="GENESIS";logQueue=Promise.resolve();
+  CAMS.forEach(c=>{c.reads=0;c.last=[];});
+  document.getElementById("hitQueue").innerHTML='<p class="empty" id="noAlerts">No pending alerts yet.</p>';
+  document.getElementById("logFeed").innerHTML="";document.getElementById("report").style.display="none";
+  render();}
+reset();
+/* ============ Sentinel log (real SHA-256 chain) ============ */
+async function sha(txt){const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(txt));
+  return [...new Uint8Array(buf)].map(x=>x.toString(16).padStart(2,"0")).join("");}
+function logAppend(kind,fields,cls){
+  const d0=day; // capture at call time — the queue may execute later, the entry must stay self-consistent
+  logQueue=logQueue.then(async()=>{
+    const payload=JSON.stringify({day:d0,kind,...fields});
+    const h=await sha(prevHash+"|"+payload);
+    const e={seq:log.length,day:d0,kind,fields,prev:prevHash,hash:h};log.push(e);prevHash=h;
+    const feed=document.getElementById("logFeed");
+    const div=document.createElement("div");if(cls)div.className=cls;
+    div.textContent="#"+e.seq+" · d"+d0+" · "+kind+" · "+Object.entries(fields).map(([k,v])=>k+"="+v).join(" ")+" · "+h.slice(0,10)+"…";
+    feed.prepend(div);while(feed.children.length>60)feed.lastChild.remove();
+    document.getElementById("logCount").textContent=log.length;
+    document.getElementById("rootHash").textContent=h.slice(0,16)+"…";
+  });
+  return logQueue;}
+async function verifyChain(){let prev="GENESIS";
+  for(const e of log){const payload=JSON.stringify({day:e.day,kind:e.kind,...e.fields});
+    const h=await sha(prev+"|"+payload);
+    if(h!==e.hash||e.prev!==prev)return{ok:false,at:e.seq};prev=h;}
+  return{ok:true,n:log.length};}
+/* ============ Janus ============ */
+const OPEN_CASES=new Set();for(let i=0;i<400;i++)OPEN_CASES.add("2027-"+(1000+i));
+function janusQuery(user,tier,caseNo,auth,emergency,mine){
+  if(user==="shared"){S.janus.bShared++;if(mine)S.janus.mine++;
+    logAppend("BLOCKED",{user,tier,reason:"shared/generic account"},"block");
+    return["BLOCKED: shared / generic accounts are prohibited.","no"];}
+  if(!OPEN_CASES.has(caseNo)){S.janus.bCase++;if(mine)S.janus.mine++;
+    logAppend("BLOCKED",{user,tier,case:caseNo,reason:"case failed validation"},"block");
+    return["BLOCKED: case number failed validation — no valid open case, no search.","no"];}
+  if(tier===3&&!auth&&!emergency){S.janus.bAuth++;if(mine)S.janus.mine++;
+    logAppend("BLOCKED",{user,tier,case:caseNo,reason:"Tier 3 without judicial authorization"},"block");
+    return["BLOCKED: Tier 3 historical search requires prior judicial authorization.","no"];}
+  if(mine)S.janus.mine++;
+  if(tier===2)S.janus.t2++;else if(emergency)S.janus.t3e++;else S.janus.t3++;
+  logAppend("QUERY",{user,tier,case:caseNo,authorization:auth?"WO-on-file":"n/a",emergency:!!emergency});
+  return["OK — query ran through Janus and was logged.","ok"];}
+document.getElementById("btnJanus").addEventListener("click",()=>{
+  const[user,tier,caseNo,auth]=[document.getElementById("jUser").value,
+    +document.getElementById("jTier").value,document.getElementById("jCase").value.trim(),
+    document.getElementById("jAuth").checked];
+  const[msg,cls]=janusQuery(user,tier,caseNo,auth,false,true);
+  const out=document.getElementById("janusOut");out.textContent=msg;
+  out.className=cls==="ok"?"ok":"no";renderJanus();});
+function renderJanus(){const j=S.janus;
+  jT2.textContent=j.t2;jT3.textContent=j.t3;jT3D.textContent=j.t3d;jT3E.textContent=j.t3e;
+  jBCase.textContent=j.bCase;jBAuth.textContent=j.bAuth;jBShared.textContent=j.bShared;jMine.textContent=j.mine;}
+/* ============ Verification cards ============ */
+function plateHTML(body,state){return '<span class="plate">'+body+"<small>"+state+" · NATURAL STATE</small></span>";}
+function spawnAlert(kind){ // kind: clean | wrongstate | misread  (card practice mix)
+  const entry=hotlist[Math.floor(rnd()*hotlist.length)];
+  let photoBody=entry.body, photoState="AR", readBody=entry.body, note="";
+  if(kind==="wrongstate"){photoState=["TN","MO","OK","TX","MS"][Math.floor(rnd()*5)];}
+  if(kind==="misread"){readBody=misread(entry.body);}
+  const q=document.getElementById("hitQueue");
+  const ph=document.getElementById("noAlerts");if(ph)ph.remove();
+  if(q.children.length>=4){autoResolve(q.firstChild);if(q.children.length>=4)return;}
+  const card=document.createElement("div");card.className="hitcard";
+  card.dataset.kind=kind;
+  card.innerHTML='<div class="lbl">⚠ Tier 1 alert — Day '+day+' · '+entry.cat+'</div>'+
+    '<div class="row"><span><span class="lbl">Plate photo</span><br>'+plateHTML(photoBody,photoState)+'</span>'+
+    '<span><span class="lbl">System read / hot-list entry</span><br>'+plateHTML(readBody,entry.state)+
+    '<div class="small">hot list: '+entry.body+' · '+entry.state+' · '+entry.cat+'</div></span></div>'+
+    '<div class="row"><button class="good">✓ Confirm hit</button><button class="bad">✕ Reject</button>'+
+    '<span class="small">Verify characters AND state before anyone gets stopped.</span></div>';
+  const[btnOk,btnNo]=card.querySelectorAll("button");
+  btnOk.addEventListener("click",()=>resolveCard(card,kind==="clean","confirm"));
+  btnNo.addEventListener("click",()=>resolveCard(card,kind!=="clean","reject"));
+  q.prepend(card);}
+function resolveCard(card,correct,how){
+  if(correct){S.score.ok++;if(how==="confirm")S.hits++;}
+  else if(how==="confirm"){S.score.bad++;}
+  else{S.score.miss++;}
+  logAppend(correct?"VERIFY_OK":"VERIFY_FAIL",
+    {result:(correct?"correct ":"")+(how==="confirm"?"confirmed":"rejected"),
+     kind:card.dataset.kind},correct?"":"block");
+  card.remove();renderScore();render();}
+function autoResolve(card){ // simulated duty officer, 90% right, counted separately
+  const correct = card.dataset.kind==="clean" ? rnd()<0.9 : rnd()<0.9;
+  if(correct&&card.dataset.kind==="clean")S.hits++;
+  if(card.dataset.kind==="wrongstate"&&correct){/* rejected properly, no hit */}
+  S.autoResolved++;card.remove();}
+function renderScore(){document.getElementById("score").innerHTML=
+  'Your verification record: <b>'+S.score.ok+'</b> correct · <b>'+S.score.bad+'</b> bad confirms · <b>'+
+  S.score.miss+'</b> missed hits <span class="small">— auto-resolved by the duty officer when the queue backs up: '+S.autoResolved+'</span>';}
+/* ============ One simulated day ============ */
+let tickBusy=false;
+async function tick(){ if(tickBusy)return; tickBusy=true;
+  try{ await tickBody(); } finally{ tickBusy=false; } }
+async function tickBody(){
+  if(day>=PILOT_DAYS){stop();finalReport();return;}
+  day++;
+  const daily=Math.round(SCANS_CAM_DAY*PILOT_CAMS*SCALE*(0.92+rnd()*0.16));
+  S.reads+=daily;S.buckets.push(daily);
+  S.ocrOk+=binom(daily,P_OCR);
+  CAMS.forEach((c,i)=>{const share=[0.42,0.33,0.25][i];c.reads+=Math.round(daily*share);
+    c.last=[];for(let k=0;k<3;k++){const b=plateBody();
+      c.last.push(rnd()<0.055?('<span class="mis">'+misread(b)+"</span>"):"<b>"+b+"</b>");}});
+  /* hot-list passes at Cabot's frequency */
+  const lam=daily*P_MATCH;
+  const nTrue=poisson(lam), nWrong=poisson(lam*WRONG_STATE_PER_HIT);
+  for(let i=0;i<nTrue;i++){S.passes++;
+    if(rnd()>P_OCR){S.missed++;logAppend("OCR_MISS",{note:"hot-list pass misread — no alert"},"del");continue;}
+    S.alerts++;const r=rnd();
+    spawnAlert(r<0.62?"clean":(r<0.85?"wrongstate":"misread"));
+    logAppend("ALERT",{note:"hot-list pass matched — awaiting verification"},"alert");}
+  for(let i=0;i<nWrong;i++){S.passes++;S.alerts++;S.wrongState++;
+    logAppend("ALERT_REJECTED",{note:"number matched, state did not — rejected at verification"},"alert");
+    spawnAlert("wrongstate");}
+  /* Janus background demand */
+  const t2=poisson(6);for(let i=0;i<t2;i++)janusQuery(["ofc.alvarez","ofc.chen","det.okafor","sgt.reyes"][Math.floor(rnd()*4)],2,"2027-"+(1000+Math.floor(rnd()*400)),false,false,false);
+  const t3=poisson(0.7);for(let i=0;i<t3;i++){const c="2027-"+(1000+Math.floor(rnd()*400));
+    if(rnd()<0.85)janusQuery("det.okafor",3,c,true,false,false);
+    else{S.janus.t3d++;logAppend("TIER3_DENIED",{case:c,note:"denied; logged; no search ran"},"block");}}
+  for(let i=0;i<poisson(0.09);i++)janusQuery("sgt.reyes",3,"2027-"+(1000+Math.floor(rnd()*400)),false,true,false);
+  for(let i=0;i<poisson(0.35);i++)janusQuery("ofc.chen",2,"BOGUS-"+Math.floor(rnd()*9999),false,false,false);
+  for(let i=0;i<poisson(0.12);i++)janusQuery("det.okafor",3,"2027-"+(1000+Math.floor(rnd()*400)),false,false,false);
+  if(day%17===0)janusQuery("shared",2,"2027-1001",false,false,false);
+  /* retention job */
+  if(S.buckets.length>RETENTION){const gone=S.buckets.shift();S.deleted+=gone;
+    logAppend("RETENTION_DELETE",{rows:gone,rule:"older than 14 days"},"del");}
+  if(day%7===0){S.wit++;await logQueue;
+    logAppend("WITNESS",{root:prevHash.slice(0,16),to:"City Clerk + public repo"},"wit");}
+  render();
+  if(day>=PILOT_DAYS){stop();finalReport();}}
+function render(){
+  sReads.textContent=S.reads.toLocaleString();
+  sOcr.textContent=S.reads?((100*S.ocrOk/S.reads).toFixed(1)+"%"):"—";
+  sAlerts.textContent=S.alerts;sHits.textContent=S.hits;
+  sWrongState.textContent=S.wrongState;sMissed.textContent=S.missed;
+  sDeleted.textContent=S.deleted.toLocaleString();
+  const win=S.buckets.reduce((a,b)=>a+b,0);sWindow.textContent=win.toLocaleString();
+  dayLbl.textContent=day;renderJanus();
+  const pf=document.getElementById('progFill');if(pf)pf.style.width=(day/PILOT_DAYS*100)+'%';
+  document.getElementById("witCount").textContent=S.wit;
+  const bars=document.getElementById("bars");bars.innerHTML="";
+  const max=Math.max(...S.buckets,1);
+  S.buckets.forEach(v=>{const d=document.createElement("div");d.className="bar";
+    d.style.height=Math.max(4,Math.round(70*v/max))+"px";bars.appendChild(d);});
+  const cams=document.getElementById("cams");cams.innerHTML="";
+  CAMS.forEach(c=>{const d=document.createElement("div");d.className="cam";
+    d.innerHTML='<span class="dot"></span><span class="nm">'+c.id+" — "+c.nm+'</span>'+
+      '<div class="small">'+c.reads.toLocaleString()+' reads this pilot</div>'+
+      '<div class="ticker">latest sample: '+c.last.join(" · ")+"</div>";cams.appendChild(d);});}
+function finalReport(){
+  const exp=(S.reads*P_MATCH).toFixed(1);
+  const obs=(S.reads? (S.passes/S.reads*100000):0).toFixed(2);
+  const el=document.getElementById("report");el.style.display="block";
+  el.innerHTML="<h2 style='color:var(--grn)'>Day-90 pilot report (simulated)</h2>"+
+   "<p>Reads processed: <b>"+S.reads.toLocaleString()+"</b> (¼ scale; full-scale equivalent ≈ "+
+   (S.reads/SCALE).toLocaleString()+"). Hot-list passes observed: <b>"+S.passes+
+   "</b> vs <b>"+exp+"</b> expected at Cabot's rate — observed frequency ≈ <b>"+obs+
+   " per 100k</b> vs CPD's 8.56. Verified hits: <b>"+S.hits+"</b> · wrong-state rejections: <b>"+S.wrongState+
+   "</b> · hits lost to OCR misreads: <b>"+S.missed+"</b>.</p>"+
+   "<p>Janus: "+S.janus.t2+" Tier 2 · "+S.janus.t3+" Tier 3 granted · "+S.janus.t3d+" denied · "+
+   S.janus.t3e+" emergency · blocked "+(S.janus.bCase+S.janus.bAuth+S.janus.bShared)+
+   " attempts (every one logged). Retention deleted <b>"+S.deleted.toLocaleString()+
+   "</b> reads on the 14-day rule; nothing older than 14 days remains outside a logged hold. Sentinel: "+
+   log.length+" entries, "+S.wit+" witness publications — press <b>Verify chain</b> to re-check every hash.</p>"+
+   "<p class='small'>Simulation only — synthetic plates, labelled assumptions, no real system, no real data. The Python engine (noctua_sim.py) produced the audited run behind this design.</p>";
+  logAppend("SYSTEM",{event:"pilot day-90 report generated"});}
+/* ============ Controls ============ */
+function stop(){running=false;clearInterval(timer);timer=null;
+  document.getElementById("btnRun").textContent="▶ Run pilot";}
+document.getElementById("btnRun").addEventListener("click",()=>{
+  if(running){stop();return;}
+  if(day>=PILOT_DAYS)reset();
+  running=true;document.getElementById("btnRun").textContent="⏸ Pause";
+  timer=setInterval(()=>{tick();},+document.getElementById("speed").value);});
+document.getElementById("speed").addEventListener("change",()=>{
+  if(running){clearInterval(timer);timer=setInterval(()=>{tick();},+document.getElementById("speed").value);}});
+document.getElementById("btnStep").addEventListener("click",()=>{stop();tick();});
+document.getElementById("btnReset").addEventListener("click",()=>{stop();reset();});
+document.getElementById("btnVerify").addEventListener("click",async()=>{
+  const out=document.getElementById("verifyOut");out.textContent="Recomputing every hash…";
+  await logQueue;const r=await verifyChain();
+  out.innerHTML=r.ok?('<span class="ok"><b>Chain verified ✓</b> — '+r.n+' entries, every hash and link intact.</span>')
+                    :('<span class="no"><b>BROKEN at entry #'+r.at+'</b> — the witness copy would catch this.</span>');});
+logAppend("SYSTEM",{event:"pilot start (simulation)",cameras:PILOT_CAMS,scale:SCALE,retention_days:RETENTION});
+render();
+</script>
+</body>
+</html>

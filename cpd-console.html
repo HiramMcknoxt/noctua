@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NOCTUA Operations Console — Cabot Police Department (Demo)</title>
+<style>
+  :root{
+    --bg:#070b16; --bg2:#0b1120; --panel:rgba(21,28,46,.86); --panel2:rgba(255,255,255,.035);
+    --line:rgba(120,140,180,.18); --line2:rgba(120,140,180,.34);
+    --txt:#eef2fa; --mut:#93a1bb; --mut2:#68778f;
+    --gold:#e6b93e; --gold2:#f5d67a; --grn:#3fb96f; --red:#f26d6d; --blu:#5ea8ff; --pur:#c09aff;
+    --radius:14px; --shadow:0 10px 28px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;color:var(--txt);min-height:100vh;
+    font:14.5px/1.5 "Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:radial-gradient(1100px 500px at 90% -10%, rgba(230,185,62,.09), transparent 60%),
+               radial-gradient(900px 600px at -10% 0%, rgba(94,168,255,.09), transparent 55%),
+               linear-gradient(180deg,var(--bg2),var(--bg));}
+  /* demo banner */
+  .demo{background:linear-gradient(90deg,#8a6d1c,#c9932b,#8a6d1c);color:#14100a;text-align:center;
+    font-weight:700;font-size:12.5px;letter-spacing:.6px;padding:6px 10px}
+  .demo2{background:#0d1526;color:var(--mut);text-align:center;font-size:12px;padding:5px 10px;
+    border-bottom:1px solid var(--line)}
+  .demo2 b{color:var(--txt)}
+  /* shell */
+  .shell{display:grid;grid-template-columns:238px 1fr;min-height:calc(100vh - 61px)}
+  @media(max-width:900px){.shell{grid-template-columns:1fr} aside{flex-direction:row;flex-wrap:wrap}}
+  aside{border-right:1px solid var(--line);padding:18px 14px;display:flex;flex-direction:column;gap:4px;
+    background:rgba(10,15,28,.6);backdrop-filter:blur(10px)}
+  .brand{display:flex;gap:11px;align-items:center;padding:2px 6px 14px}
+  .brand h1{font-size:16.5px;margin:0;letter-spacing:2px}
+  .brand h1 span{background:linear-gradient(90deg,var(--gold),var(--gold2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .brand .sub{color:var(--mut);font-size:11px;line-height:1.35}
+  .navbtn{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;
+    border:1px solid transparent;color:var(--mut);border-radius:11px;padding:9px 12px;cursor:pointer;
+    font:inherit;font-size:13.5px;font-weight:600;transition:all .13s}
+  .navbtn:hover{color:var(--txt);background:rgba(255,255,255,.04)}
+  .navbtn.on{color:var(--txt);background:rgba(230,185,62,.12);border-color:rgba(230,185,62,.4)}
+  .navbtn .bdg{margin-left:auto;background:var(--red);color:#fff;font-size:11px;font-weight:800;
+    border-radius:99px;padding:1px 8px;display:none}
+  .sidefoot{margin-top:auto;color:var(--mut2);font-size:11px;padding:10px 6px 0;line-height:1.5}
+  /* topbar */
+  .topbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:14px 22px;border-bottom:1px solid var(--line)}
+  .topbar h2{font-size:19px;margin:0}
+  .clock{font-family:ui-monospace,Menlo,Consolas,monospace;background:rgba(255,255,255,.05);
+    border:1px solid var(--line);border-radius:10px;padding:7px 12px;font-size:13px}
+  .clock b{color:var(--gold2)}
+  button{font:inherit;font-size:13px;font-weight:600;color:var(--txt);cursor:pointer;
+    background:rgba(255,255,255,.04);border:1px solid var(--line2);border-radius:999px;padding:7px 15px;transition:all .14s}
+  button:hover{border-color:var(--gold);transform:translateY(-1px)}
+  button.primary{background:linear-gradient(135deg,var(--gold),#c9932b);color:#191203;border-color:transparent;
+    box-shadow:0 5px 16px rgba(230,185,62,.3)}
+  button.good{border-color:rgba(63,185,111,.6);color:#7fe0a4}
+  button.good:hover{background:rgba(63,185,111,.14)}
+  button.bad{border-color:rgba(242,109,109,.55);color:#ff9c9c}
+  button.bad:hover{background:rgba(242,109,109,.12)}
+  button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+  select,input{font:inherit;font-size:13px;background:rgba(255,255,255,.05);color:var(--txt);
+    border:1px solid var(--line2);border-radius:9px;padding:7px 9px;outline:none}
+  select:focus,input:focus{border-color:var(--gold)}
+  label.f{display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--mut);
+    text-transform:uppercase;letter-spacing:.7px;font-weight:600}
+  /* content */
+  .view{display:none;padding:18px 22px 30px;animation:fade .18s ease}
+  .view.on{display:block}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:15px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
+  .card h3{font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:var(--mut);margin:0 0 3px}
+  .card .hint{color:var(--mut2);font-size:12px;margin:0 0 11px}
+  .s3{grid-column:span 3}.s4{grid-column:span 4}.s5{grid-column:span 5}.s6{grid-column:span 6}
+  .s7{grid-column:span 7}.s8{grid-column:span 8}.s12{grid-column:span 12}
+  @media(max-width:1100px){.s3,.s4,.s5,.s6,.s7,.s8{grid-column:span 12}}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:15px}
+  @media(max-width:1100px){.kpis{grid-template-columns:repeat(2,1fr)}}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;position:relative;overflow:hidden;box-shadow:var(--shadow)}
+  .kpi::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--ac,var(--blu))}
+  .kpi .k{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:1.1px}
+  .kpi .v{font-size:28px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}
+  .kpi .s{color:var(--mut2);font-size:11.5px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td,th{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+  th{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.7px}
+  tr.clickable{cursor:pointer} tr.clickable:hover{background:rgba(230,185,62,.07)}
+  tr.sel{background:rgba(230,185,62,.13)}
+  .tag{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.5px;border-radius:99px;padding:1px 8px;text-transform:uppercase}
+  .tag.pend{background:rgba(230,185,62,.18);color:var(--gold2)}
+  .tag.ver{background:rgba(63,185,111,.16);color:#7fe0a4}
+  .tag.rej{background:rgba(242,109,109,.15);color:#ff9c9c}
+  .tag.cat{background:rgba(94,168,255,.14);color:#9cc8ff}
+  .plate{display:inline-block;background:linear-gradient(180deg,#fff,#dfe7f2);color:#12233f;border:2px solid #0d1b31;
+    border-radius:7px;font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:800;letter-spacing:2px;
+    padding:2px 10px 0;text-align:center;font-size:16px}
+  .plate small{display:block;font-size:7.5px;letter-spacing:3px;color:#33507e}
+  .plate.lg{font-size:27px;padding:5px 18px 2px;border-radius:10px}
+  .plate.lg small{font-size:10px}
+  .feed{max-height:330px;overflow:auto;font-size:12.5px}
+  .feed div{padding:6px 8px;border-bottom:1px solid rgba(120,140,180,.09);display:flex;gap:9px;align-items:center}
+  .feed .t{color:var(--mut2);font-family:ui-monospace,Menlo,monospace;font-size:11.5px;white-space:nowrap}
+  .feed .hitrow{background:rgba(230,185,62,.09)}
+  canvas.scene{width:100%;height:auto;border-radius:11px;border:1px solid var(--line);display:block;background:#0a0f1e}
+  .camhead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .camhead b{font-size:13.5px}
+  .camhead span{color:var(--mut);font-size:12px;font-variant-numeric:tabular-nums}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--grn);margin-right:6px;
+    box-shadow:0 0 0 0 rgba(63,185,111,.5);animation:pulse 2.2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(63,185,111,.45)}70%{box-shadow:0 0 0 7px rgba(63,185,111,0)}100%{box-shadow:0 0 0 0 rgba(63,185,111,0)}}
+  .small{color:var(--mut);font-size:12.5px}
+  .ok{color:var(--grn)} .no{color:var(--red)}
+  .kbd{font-family:ui-monospace,Menlo,monospace;background:rgba(255,255,255,.07);padding:1px 6px;border-radius:5px;font-size:12px;color:var(--gold2)}
+  .bars{display:flex;align-items:flex-end;gap:4px;height:90px;border-bottom:1px solid var(--line)}
+  .bar{flex:1;background:linear-gradient(180deg,var(--blu),rgba(94,168,255,.4));border-radius:3px 3px 0 0;min-height:3px}
+  .bar.g{background:linear-gradient(180deg,var(--gold),rgba(230,185,62,.4))}
+  .formrow{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+  .msg{font-weight:700;min-height:20px;margin-top:8px}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;word-break:break-all}
+  .wititem{border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-bottom:8px;background:var(--panel2)}
+  @media print{aside,.topbar .ctl,.demo,.demo2{display:none} .shell{grid-template-columns:1fr} .view{display:none} #view-reports{display:block}}
+</style>
+</head>
+<body>
+<div class="demo">⚠ DEMONSTRATION SYSTEM — SYNTHETIC DATA ONLY · NOT CONNECTED TO ANY CAMERA, ACIC, OR CPD SYSTEM · PROJECT NOCTUA REFERENCE BUILD v0.9</div>
+<div class="demo2"><b>Demonstration console</b> — simulates its backend; the production console is this same interface wired to the Janus API.</div>
+<div class="shell">
+  <aside>
+    <div class="brand">
+      <img src="data:image/webp;base64,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" alt="Project NOCTUA logo" width="46" height="46" style="border-radius:11px;flex:none">
+      <div><h1>NOCTUA <span>OPS</span></h1><div class="sub">Cabot Police Department<br>City-owned ALPR console</div></div>
+    </div>
+    <button class="navbtn on" data-view="ops">🖥️ Operations</button>
+    <button class="navbtn" data-view="hits">🔔 Hit Review <span class="bdg" id="hitBadge">0</span></button>
+    <button class="navbtn" data-view="search">🔎 Search Reads</button>
+    <button class="navbtn" data-view="hotlist">🎯 Hot List</button>
+    <button class="navbtn" data-view="janus">🚪 Janus Queries</button>
+    <button class="navbtn" data-view="audit">🛡️ Audit Log</button>
+    <button class="navbtn" data-view="reports">📊 Reports</button>
+    <button class="navbtn" data-view="system">⚙️ System</button>
+    <div class="sidefoot">Open-source reference build.<br>Janus front door · Sentinel witnessed log · 14-day retention.<br><br>Policy: Ark. Code §§ 12-12-1801 –1808 · Cabot pilot spec, Nov. 23, 2026.</div>
+  </aside>
+
+  <div>
+    <div class="topbar">
+      <h2 id="viewTitle">Operations</h2>
+      <div class="clock">SIM CLOCK <b id="simClock">—</b></div>
+      <div class="ctl" style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-left:auto">
+        <label class="f" style="text-transform:none;letter-spacing:0">Operator
+          <select id="operatorSel">
+            <option value="det.okafor">det.okafor — Detective</option>
+            <option value="ofc.chen">ofc.chen — Patrol</option>
+            <option value="sgt.reyes">sgt.reyes — Supervisor</option>
+            <option value="auditor.external">auditor.external — Outside auditor (read-only)</option>
+          </select>
+        </label>
+        <button id="runBtn" class="primary">⏸ Pause live feed</button>
+        <button id="stepBtn">+1 hour</button>
+        <select id="speedSel" title="Simulation speed">
+          <option value="2000">0.5×</option>
+          <option value="1000" selected>1× (1s = 10 min)</option>
+          <option value="300">4×</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- ============ OPERATIONS ============ -->
+    <section class="view on" id="view-ops">
+      <div class="kpis">
+        <div class="kpi" style="--ac:var(--blu)"><div class="k">Plate reads (pilot total)</div><div class="v" id="kReads">0</div><div class="s">9 cameras · full city volume</div></div>
+        <div class="kpi" style="--ac:var(--gold)"><div class="k">Alerts awaiting review</div><div class="v" id="kPending">0</div><div class="s">an alert is a lead, not proof</div></div>
+        <div class="kpi" style="--ac:var(--grn)"><div class="k">Verified hits</div><div class="v" id="kVerified">0</div><div class="s">characters + state confirmed</div></div>
+        <div class="kpi" style="--ac:var(--pur)"><div class="k">Reads deleted (14-day rule)</div><div class="v" id="kDeleted">0</div><div class="s" id="kWindow">0 inside the window</div></div>
+      </div>
+      <div class="grid" style="margin-top:15px">
+        <div id="camGrid" style="display:contents"></div>
+        <div class="card s4"><div class="camhead"><b><span class="dot"></span>CAM-02 · High-speed site</b><span id="camStat1">0 reads</span></div>
+          <canvas class="scene" id="camCv1" width="480" height="300"></canvas></div>
+        <div class="card s4"><div class="camhead"><b><span class="dot"></span>CAM-03 · Slow approach</b><span id="camStat2">0 reads</span></div>
+          <canvas class="scene" id="camCv2" width="480" height="300"></canvas></div>
+        <div class="card s7"><h3>Live read feed</h3><p class="hint">Sampled individual reads (counters run the full volume). Gold rows matched the hot list.</p>
+          <div class="feed" id="liveFeed"></div></div>
+        <div class="card s5"><h3>Latest alerts</h3><p class="hint">Click one to open it in Hit Review.</p>
+          <div class="feed" id="opsHits"></div></div>
+      </div>
+    </section>
+
+    <!-- ============ HIT REVIEW ============ -->
+    <section class="view" id="view-hits">
+      <div class="grid">
+        <div class="card s5"><h3>Alert queue</h3><p class="hint">Every hot-list match, newest first. Nothing here has been acted on yet — verification comes first (ASP Rule 6(a) pattern).</p>
+          <div id="hitList"></div></div>
+        <div class="card s7"><h3>Hit detail</h3><p class="hint">Camera snapshot, plate close-up, and the hot-list entry it matched. Confirm only when characters <b>and</b> state both match.</p>
+          <div id="hitDetail"><p class="small">Select an alert from the queue.</p></div></div>
+      </div>
+    </section>
+
+    <!-- ============ SEARCH ============ -->
+    <section class="view" id="view-search">
+      <div class="card">
+        <h3>Search retained reads</h3>
+        <p class="hint">Goes through Janus: your account, a valid case number, and the tier rules apply — and the search itself is logged. Non-hit reads exist only inside the 14-day window; this demo retains a sampled buffer (see System page).</p>
+        <div class="formrow">
+          <label class="f">Plate (full or partial)<input id="qPlate" size="14" placeholder="e.g. 4KX or 418KXT"></label>
+          <label class="f">Camera
+            <select id="qCam"><option value="">All cameras</option></select></label>
+          <label class="f">Case number<input id="qCase" size="13" placeholder="2027-1001"></label>
+          <label class="f">Tier
+            <select id="qTier"><option value="2">Tier 2 — contemporaneous (≤ 24 h)</option><option value="3">Tier 3 — historical (judicial authorization)</option></select></label>
+          <label class="f"><span><input type="checkbox" id="qAuth" style="accent-color:var(--gold)"> Judicial authorization on file</span></label>
+          <button id="btnSearch" class="primary">Search via Janus</button>
+        </div>
+        <div class="msg" id="searchMsg"></div>
+        <div id="searchResults" style="margin-top:8px"></div>
+      </div>
+    </section>
+
+    <!-- ============ HOT LIST ============ -->
+    <section class="view" id="view-hotlist">
+      <div class="grid">
+        <div class="card s8"><h3>Plates to look for — <span id="hlCount">0</span> active</h3>
+          <p class="hint">The city's working hot list, synced in the real deployment from ACIC/NCIC plus gated local entries. Every add and removal is audit-logged with the operator's name.</p>
+          <div class="formrow" style="margin-bottom:10px">
+            <label class="f">Search<input id="hlSearch" size="16" placeholder="plate fragment"></label>
+            <label class="f">Category
+              <select id="hlCat"><option value="">All categories</option><option>stolen vehicle</option><option>stolen plate</option><option>arrest warrant</option><option>missing / endangered</option><option>custom (gated)</option></select></label>
+            <span class="small" id="hlPageInfo"></span>
+            <span style="margin-left:auto;display:flex;gap:7px"><button id="hlPrev">← Prev</button><button id="hlNext">Next →</button></span>
+          </div>
+          <table><thead><tr><th>Plate</th><th>State</th><th>Category</th><th>Source</th><th>Added</th><th>Expires</th><th></th></tr></thead>
+          <tbody id="hlBody"></tbody></table>
+        </div>
+        <div class="card s4"><h3>Add an entry</h3><p class="hint">Local entries require a case number and expire automatically. Stolen/warrant entries normally arrive by ACIC sync, not by hand.</p>
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <label class="f">Plate<input id="hlPlate" placeholder="e.g. 731KQR"></label>
+            <label class="f">State<input id="hlState" value="AR" size="4"></label>
+            <label class="f">Category
+              <select id="hlCategory"><option>custom (gated)</option><option>stolen vehicle</option><option>stolen plate</option><option>arrest warrant</option><option>missing / endangered</option></select></label>
+            <label class="f">Case number<input id="hlCase" placeholder="2027-1001"></label>
+            <label class="f">Expires in (days)<input id="hlDays" type="number" value="30" min="1" max="150"></label>
+            <button id="btnHlAdd" class="primary">Add to hot list</button>
+            <div class="msg" id="hlMsg"></div>
+          </div>
+          <p class="small">Valid cases: <span class="kbd">2027-1000</span> – <span class="kbd">2027-1399</span>. An invalid case number blocks the add — same rule as a search.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ JANUS ============ -->
+    <section class="view" id="view-janus">
+      <div class="grid">
+        <div class="card s6"><h3>Run a query</h3><p class="hint">One front door. No direct database access, no shared accounts, no national lookups. Queries run under your operator account (top bar).</p>
+          <div class="formrow">
+            <label class="f">Tier
+              <select id="jTier"><option value="2">Tier 2 — contemporaneous</option><option value="3">Tier 3 — historical search</option></select></label>
+            <label class="f">Case number<input id="jCase" placeholder="2027-1001" size="13"></label>
+            <label class="f"><span><input type="checkbox" id="jAuth" style="accent-color:var(--gold)"> Judicial authorization</span></label>
+            <button id="btnJanus" class="primary">Run query</button>
+          </div>
+          <div class="msg" id="janusOut"></div>
+          <table>
+            <tr><th>Allowed</th><th></th><th>Blocked (and logged)</th><th></th></tr>
+            <tr><td>Tier 2 queries</td><td id="jT2">0</td><td>Invalid case</td><td id="jBCase">0</td></tr>
+            <tr><td>Tier 3 granted</td><td id="jT3">0</td><td>Tier 3, no authorization</td><td id="jBAuth">0</td></tr>
+            <tr><td>Tier 3 denied</td><td id="jT3D">0</td><td>Shared account</td><td id="jBShared">0</td></tr>
+            <tr><td>Tier 3 emergency</td><td id="jT3E">0</td><td>Your queries</td><td id="jMine">0</td></tr>
+          </table>
+        </div>
+        <div class="card s6"><h3>Recent Janus traffic</h3><p class="hint">Allowed and blocked, side by side — the blocks are the control working, and they are all in the audit log.</p>
+          <div class="feed" id="janusRecent" style="max-height:380px"></div></div>
+      </div>
+    </section>
+
+    <!-- ============ AUDIT ============ -->
+    <section class="view" id="view-audit">
+      <div class="grid">
+        <div class="card s8"><h3>Sentinel audit log</h3><p class="hint">Append-only, hash-chained. Newest first (latest 200 shown; export carries everything).</p>
+          <div style="display:flex;gap:9px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+            <button id="btnVerify2" class="primary">Verify chain</button>
+            <button id="btnExportLog">⬇ Export log (JSON)</button>
+            <button id="btnTamper" class="bad">🧪 Simulate insider tampering</button>
+            <button id="btnRestore" disabled>Restore entry</button>
+            <span id="verifyOut2" class="small">Chain status: <b id="chainBadge">not yet verified this session</b></span>
+          </div>
+          <table><thead><tr><th>#</th><th>Sim time</th><th>Event</th><th>Detail</th><th>Hash</th></tr></thead>
+          <tbody id="auditBody"></tbody></table>
+        </div>
+        <div class="card s4"><h3>Outside witness</h3><p class="hint">Every 7 sim-days the root hash is published outside the system — City Clerk + public repository. Tamper-evidence works because someone else holds a copy.</p>
+          <div id="witList"></div>
+          <h3 style="margin-top:16px">How to check us</h3>
+          <p class="small">1. Export the log.<br>2. Recompute the chain — any edited entry breaks every hash after it.<br>3. Compare the weekly roots against the Clerk's published copies.<br>4. Compare the chain against the daily signed checkpoints (right, below) — a rewritten chain cannot match a root the Clerk already holds.<br><br>The outside auditor's account is read-only and cannot run queries, verify hits, or edit the hot list.</p>
+        </div>
+      </div>
+      <div class="grid" style="margin-top:15px">
+        <div class="card s6"><h3>🧪 Try to go around Janus</h3>
+          <p class="hint">The bypass test. Janus is supposed to be the <i>only</i> way to plate data — so don't use it. Try the camera software's own interface, its event store, and the database file itself.</p>
+          <button id="btnBypass" class="bad">Attempt direct Frigate / database read</button>
+          <div id="bypassSteps" style="margin-top:10px;display:flex;flex-direction:column;gap:7px"></div>
+          <div class="msg" id="bypassOut"></div>
+          <p class="small" style="margin-top:10px">What this models: the <b>hardened production configuration</b> — Frigate as a write-only sensor with no human-reachable UI, a rolling buffer measured in minutes instead of an archive, and the plate store reachable only through Janus under a named account. That lockdown is a configuration requirement in the deploy package; this demo shows the intended behavior, and cannot by itself prove a production install is configured that way.</p>
+        </div>
+        <div class="card s6"><h3>🧪 Full-chain rewrite — the sophisticated insider</h3>
+          <p class="hint">The tamper test above catches a careless edit. This is the stronger attack: edit an entry, then <b>recompute every hash in the chain</b> so the log is internally consistent again. Plain chain verification will pass. The daily signed checkpoints — published outside this system, held by the City Clerk — will not.</p>
+          <div style="display:flex;gap:9px;flex-wrap:wrap;align-items:center">
+            <button id="btnRewrite" class="bad">🧪 Simulate full-chain rewrite</button>
+            <button id="btnCheckCp" class="primary">Check published checkpoints</button>
+            <button id="btnRestoreRewrite" disabled>Restore witnessed chain</button>
+          </div>
+          <div class="msg" id="rewriteOut"></div>
+          <h3 style="margin-top:14px">Daily signed checkpoints (Clerk's copies)</h3>
+          <table><thead><tr><th>Day</th><th>Entries</th><th>Root hash</th><th>Clerk signature</th></tr></thead>
+          <tbody id="cpBody"></tbody></table>
+          <div style="margin-top:9px;display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+            <button id="btnPublishCp">Publish checkpoint now (as the Clerk would)</button>
+            <span class="small">One is also published automatically each sim day.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ REPORTS ============ -->
+    <section class="view" id="view-reports">
+      <div class="grid">
+        <div class="card s12"><h3>Pilot report — generated from live console data</h3>
+          <p class="hint">The same figures the day-90 public report would carry. <button id="btnPrint" style="margin-left:8px">🖨 Print / save PDF</button></p>
+          <div class="kpis" id="repTiles"></div></div>
+        <div class="card s4"><h3>Reads by camera</h3><div id="repCams"></div></div>
+        <div class="card s4"><h3>Alerts by category</h3><div id="repCats"></div></div>
+        <div class="card s4"><h3>Verification outcomes</h3><div id="repOutcomes"></div></div>
+        <div class="card s12"><h3>Frequency check — are we seeing what Cabot's record predicts?</h3>
+          <p class="hint">CPD's record (Jan 1–Jun 30, 2026, 9 cameras): 8,040,000 scans, 688 matches → 8.56 matches per 100k reads.</p>
+          <div id="repRate" style="font-size:15px"></div></div>
+      </div>
+    </section>
+
+    <!-- ============ SYSTEM ============ -->
+    <section class="view" id="view-system">
+      <div class="grid">
+        <div class="card s6"><h3>Cameras</h3><p class="hint">Existing Flock sites only. No new locations without a separate Council vote.</p>
+          <table><thead><tr><th>ID</th><th>Location — existing Flock site</th><th>Status</th><th>Reads</th><th>Last read</th></tr></thead><tbody id="camTable"></tbody></table>
+          <p class="small"><b>Provenance — read before quoting:</b> locations are the nine community-mapped Cabot points (OpenStreetMap via howyouaretracked.com, snapshot Nov. 15, 2026); the count matches CPD's Flock transparency portal (9 cameras). Points are approximate and are <b>not</b> an official inventory — no public council record lists locations. Fleet models from the Oct. 19, 2026 packet invoices: <b>8× Falcon + 1× Flex</b> (leased, Flock-owned); which site holds the Flex is not in the public record, so no per-site model is asserted here. Ownership of the Home Depot Dr / Going Dr points is <b>unverified</b> (Home Depot runs its own Flock units nationally) — settling the inventory takes Chief Dodd or a FOIA. NOCTUA cameras would be city-owned LPR units mounted at the approved sites.</p>
+          <h3 style="margin-top:18px">Policy in force (from the pilot spec)</h3>
+          <table>
+            <tr><td>Retention — non-hit reads</td><td><b>14 days, hard delete, logged</b></td></tr>
+            <tr><td>Retention — verified-hit records</td><td>30-day investigation hold, then delete, logged</td></tr>
+            <tr><td>State ceiling (Ark. Code § 12-12-1804)</td><td>150 days — the pilot is far stricter</td></tr>
+            <tr><td>Historical searches (Tier 3)</td><td>Prior judicial authorization, two-key rule in production</td></tr>
+            <tr><td>Audit witness</td><td>Weekly root hash → City Clerk + public repo · daily signed checkpoints streamed outside the system (Sentinel v2)</td></tr>
+            <tr><td>Accounts</td><td>Named individuals only · shared/generic accounts blocked by Janus</td></tr>
+          </table>
+        </div>
+        <div class="card s6"><h3>Users &amp; roles</h3>
+          <table><thead><tr><th>Account</th><th>Role</th><th>Can query</th><th>Can verify</th><th>Hot list</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">det.okafor</td><td>Detective</td><td>Yes</td><td>Yes</td><td>Add (gated)</td></tr>
+            <tr><td class="mono">ofc.chen</td><td>Patrol</td><td>Tier 1–2</td><td>Yes</td><td>No</td></tr>
+            <tr><td class="mono">sgt.reyes</td><td>Supervisor</td><td>Yes + emergency</td><td>Yes</td><td>Add / remove</td></tr>
+            <tr><td class="mono">auditor.external</td><td>Outside auditor</td><td class="no">No</td><td class="no">No</td><td>Read-only</td></tr>
+            <tr><td class="mono" style="color:var(--red)">shared / generic</td><td colspan="4" class="no">Prohibited — Janus blocks these accounts outright</td></tr>
+          </tbody></table>
+          <h3 style="margin-top:18px">Reference stack (production path)</h3>
+          <p class="small">Detection/OCR: Frigate LPR or fast-alpr (open source) on commodity cameras · Front door: Janus API (this console's rules, as a service) · Store: PostgreSQL with row-level retention jobs · Log: Sentinel append-only chain, weekly witness publication · Hosting: city-controlled server; the matching step stays on the ACIC/dispatch side unless CJIS Path B is separately approved and priced (spec §4).</p>
+          <h3 style="margin-top:18px">Demo data controls</h3>
+          <p class="small">This demo keeps state in the browser tab only. Production persists server-side.</p>
+          <div style="display:flex;gap:9px;flex-wrap:wrap">
+            <button id="btnExportAll">⬇ Export all demo data (JSON)</button>
+            <button id="btnResetDemo" class="bad">Reset demo</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ================= NOCTUA Ops Console — demo engine =================
+   Same rates as the audited Python sim: P(match)=688/8,040,000 (CPD record),
+   4,935.5 scans/camera/day, 3 pilot cameras, 14-day retention.           */
+const P_MATCH = 688/8040000, SCANS_CAM_DAY = 8040000/181/9, P_OCR = 0.945;
+const CAMS = ["CAM-01","CAM-02","CAM-03","CAM-04","CAM-05","CAM-06","CAM-07","CAM-08","CAM-09"], RETENTION_D = 14, HOLD_D = 30;
+const CAM_TYPES = ["1389 W Main St · by Ridout Lumber","Bill Foster Memorial Hwy (US-67)","2109 N 2nd St","3141 S 2nd St","210 S Rockwood Dr","2899 Kerr Station Rd","Church Dr","Home Depot Dr","748 Going Dr"];
+const EPOCH = Date.UTC(2027,0,5,6,0);            // pilot day 1: Tue Jan 5, 2027 06:00
+let _s = 20270105;
+function rnd(){_s|=0;_s=_s+0x6D2B79F5|0;let t=Math.imul(_s^_s>>>15,1|_s);
+  t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}
+function srand(seed){let h=2166136261;for(const c of String(seed)){h^=c.charCodeAt(0);h=Math.imul(h,16777619);}
+  return function(){h|=0;h=h+0x6D2B79F5|0;let t=Math.imul(h^h>>>15,1|h);
+    t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function poisson(l){const L=Math.exp(-l);let k=0,p=1;do{k++;p*=rnd();}while(p>L);return k-1;}
+const LET="ABCDEFGHJKLMNPRSTUVWXYZ", DIG="0123456789";
+function plateBody(){let b="";if(rnd()<0.5){for(let i=0;i<3;i++)b+=LET[(rnd()*LET.length)|0];
+  for(let i=0;i<3;i++)b+=DIG[(rnd()*10)|0];}else{for(let i=0;i<3;i++)b+=DIG[(rnd()*10)|0];
+  for(let i=0;i<3;i++)b+=LET[(rnd()*LET.length)|0];}return b;}
+const CONF={O:"0","0":"O","8":"B","B":"8","1":"I","I":"1","5":"S","S":"5"};
+function misread(b){const ix=[];for(let i=0;i<b.length;i++)if(CONF[b[i]])ix.push(i);
+  if(!ix.length)return b;const i=ix[(rnd()*ix.length)|0];return b.slice(0,i)+CONF[b[i]]+b.slice(i+1);}
+function unmisread(b){return misread(b);} // a plate that OCR could read as b (same confusable swap)
+const CATS=["stolen vehicle","stolen vehicle","stolen vehicle","stolen plate","stolen plate",
+  "arrest warrant","arrest warrant","arrest warrant","missing / endangered","custom (gated)"];
+const MAKES=[["Ford","F-150","pickup"],["Chevrolet","Silverado","pickup"],["Toyota","Camry","sedan"],
+  ["Honda","Accord","sedan"],["Jeep","Grand Cherokee","SUV"],["Nissan","Altima","sedan"],
+  ["GMC","Sierra","pickup"],["Dodge","Charger","sedan"],["Ford","Escape","SUV"],["Toyota","Tacoma","pickup"],
+  ["Honda","CR-V","SUV"],["Chevrolet","Malibu","sedan"]];
+const COLORS=["#c0c4cc","#23272e","#7a1f1f","#1f3a6e","#e8e8e8","#3a3f47","#5b2a86","#1e5c46","#8a6d1c","#742f12"];
+const OSTATES=["TN","MO","OK","TX","MS"];
+const CAM_SHARE=[0.16,0.14,0.12,0.12,0.11,0.10,0.09,0.08,0.08];
+const OPEN_CASES=new Set();for(let i=0;i<400;i++)OPEN_CASES.add("2027-"+(1000+i));
+/* ---------- time ---------- */
+let simMin = 21*1440; // console opens on pilot day 22, with 21 days of history
+function dt(mins){return new Date(EPOCH+mins*60000);}
+function fmtT(mins){const d=dt(mins);const M=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const hh=String(d.getUTCHours()).padStart(2,"0"), mm=String(d.getUTCMinutes()).padStart(2,"0");
+  return M[d.getUTCMonth()]+" "+d.getUTCDate()+" "+hh+":"+mm;}
+function fmtD(mins){const d=dt(mins);const M=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return M[d.getUTCMonth()]+" "+d.getUTCDate()+", "+d.getUTCFullYear();}
+function dayIdx(mins){return Math.floor(mins/1440);}
+/* ---------- state ---------- */
+const S = { reads:0, deleted:0, ocrOk:0, alerts:0, missed:0, passes:0,
+  janus:{t2:0,t3:0,t3d:0,t3e:0,bCase:0,bAuth:0,bShared:0,mine:0},
+  camReads:Array(9).fill(0), buckets:{}, wit:0 };
+let readsBuf = [];       // sampled individual reads (demo buffer)
+let hits = [];           // hit records, newest first
+let hitSeq = 1000;
+const hotlist = [];
+for(let i=0;i<220;i++){const added = (rnd()*19)|0;
+  hotlist.push({plate:plateBody(), state:"AR", cat:CATS[(rnd()*CATS.length)|0],
+    source: rnd()<0.82 ? "ACIC/NCIC sync" : "Local — case 2027-"+(1000+((rnd()*400)|0)),
+    addedMin: added*1440 + ((rnd()*1440)|0), expMin: (added+30+((rnd()*90)|0))*1440, active:true});}
+/* ---------- Sentinel audit chain ---------- */
+let log=[], prevHash="GENESIS", logQueue=Promise.resolve();
+async function sha(txt){const b=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(txt));
+  return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,"0")).join("");}
+function audit(kind, fields){
+  const m0 = simMin;
+  logQueue = logQueue.then(async()=>{
+    const payload = JSON.stringify({m:m0, kind, ...fields});
+    const h = await sha(prevHash+"|"+payload);
+    log.push({seq:log.length, min:m0, kind, fields, prev:prevHash, hash:h});
+    prevHash = h;
+    if(document.getElementById("view-audit").classList.contains("on")) renderAudit();
+  });
+  return logQueue;}
+async function verifyChain(){let prev="GENESIS";
+  for(const e of log){const p=JSON.stringify({m:e.min,kind:e.kind,...e.fields});
+    const h=await sha(prev+"|"+p); if(h!==e.hash||e.prev!==prev) return {ok:false,at:e.seq}; prev=h;}
+  return {ok:true,n:log.length};}
+/* ---------- car snapshot drawing (Plate Panic 2D look) ---------- */
+function drawScene(cv, rec){
+  const x = cv.getContext("2d"), W=cv.width, H=cv.height, R = srand(rec.seed);
+  const night = (()=>{const h=dt(rec.tsMin).getUTCHours(); return h<6||h>=19;})();
+  // road
+  const g = x.createLinearGradient(0,0,0,H);
+  g.addColorStop(0, night?"#0d1220":"#39415a"); g.addColorStop(1, night?"#070a14":"#232a42");
+  x.fillStyle=g; x.fillRect(0,0,W,H);
+  x.strokeStyle = night?"rgba(230,220,160,.35)":"rgba(255,255,255,.4)"; x.lineWidth=5; x.setLineDash([26,20]);
+  x.beginPath(); x.moveTo(W*0.06,H); x.lineTo(W*0.4,0); x.stroke();
+  x.beginPath(); x.moveTo(W*0.98,H); x.lineTo(W*0.68,0); x.stroke(); x.setLineDash([]);
+  x.fillStyle="rgba(255,255,255,.05)"; for(let i=0;i<40;i++)x.fillRect(R()*W,R()*H,2,2);
+  // car (top-down, Plate Panic proportions)
+  const [mk,md,typ] = rec.car, col = rec.color;
+  const cw = typ==="pickup"?250: typ==="SUV"?238:224, ch = typ==="sedan"?104:112;
+  const cx=W/2+(R()*30-15), cy=H/2+(R()*16-8), ang=(R()*0.09-0.045);
+  x.save(); x.translate(cx,cy); x.rotate(ang);
+  x.fillStyle="rgba(0,0,0,.45)"; x.beginPath(); x.roundRect(-cw/2+7,-ch/2+9,cw,ch,20); x.fill();
+  x.fillStyle=col; x.beginPath(); x.roundRect(-cw/2,-ch/2,cw,ch,20); x.fill();
+  x.fillStyle="rgba(0,0,0,.28)"; x.beginPath(); x.roundRect(-cw/2,-ch/2,cw,ch,20); x.fill();
+  x.fillStyle="#101623"; // windshield + rear window (Plate Panic blocks)
+  x.beginPath(); x.roundRect(-cw*0.30,-ch/2+10,cw*0.6,ch-20,8); x.fill();
+  x.fillStyle=col; x.fillRect(-cw*0.05,-ch/2,10,ch); // roof pillar split
+  x.fillStyle="#0a0e18"; // wheels
+  [[-cw/2+16,-ch/2-4],[cw/2-40,-ch/2-4],[-cw/2+16,ch/2-6],[cw/2-40,ch/2-6]].forEach(([wx,wy])=>x.fillRect(wx,wy,24,10));
+  if(night){const lg=x.createRadialGradient(cw/2,0,4,cw/2,0,90);
+    lg.addColorStop(0,"rgba(255,244,190,.5)"); lg.addColorStop(1,"rgba(255,244,190,0)");
+    x.fillStyle=lg; x.beginPath(); x.moveTo(cw/2,-ch/2+8); x.lineTo(cw/2+95,0); x.lineTo(cw/2,ch/2-8); x.fill();}
+  // plate on the rear (left = rear for rightward travel)
+  const pw=86, ph=34, px=-cw/2-2, py=-ph/2;
+  x.fillStyle="#f4f6f8"; x.strokeStyle="#0d1b31"; x.lineWidth=2;
+  x.beginPath(); x.roundRect(px-pw/2+8,py,pw,ph,5); x.fill(); x.stroke();
+  x.fillStyle="#12233f"; x.font="800 19px ui-monospace,Menlo,monospace"; x.textAlign="center";
+  x.fillText(rec.truePlate, px+8, py+19);
+  x.font="700 6.5px Arial"; x.fillStyle="#33507e"; x.fillText(rec.trueState+" · NATURAL STATE", px+8, py+29);
+  x.restore();
+  // overlay
+  x.fillStyle="rgba(0,0,0,.55)"; x.fillRect(0,0,W,26);
+  x.fillStyle="#e8edf6"; x.font="600 12.5px ui-monospace,Menlo,monospace"; x.textAlign="left";
+  x.fillText(rec.cam+"  ·  "+fmtT(rec.tsMin)+"  ·  "+mk+" "+md, 10, 17);
+  x.fillStyle="#f26d6d"; x.beginPath(); x.arc(W-52,13,5,0,7); x.fill();
+  x.fillStyle="#e8edf6"; x.font="700 11px Arial"; x.fillText("REC", W-42, 17);
+  x.save(); x.translate(W/2,H-14); x.rotate(0); x.globalAlpha=.4;
+  x.font="700 11px Arial"; x.textAlign="center"; x.fillStyle="#fff";
+  x.fillText("SYNTHETIC IMAGE — NOCTUA DEMO", 0, 0); x.restore();
+}
+function drawPlateZoom(cv, rec){
+  const x=cv.getContext("2d"), W=cv.width, H=cv.height;
+  x.fillStyle="#141a29"; x.fillRect(0,0,W,H);
+  x.fillStyle=rec.color; x.fillRect(0,H*0.18,W,H*0.5);
+  x.fillStyle="rgba(0,0,0,.3)"; x.fillRect(0,H*0.18,W,10);
+  const pw=Math.min(400,W*0.72), ph=pw*0.42, px=(W-pw)/2, py=(H-ph)/2;
+  x.fillStyle="#f7f9fc"; x.strokeStyle="#0d1b31"; x.lineWidth=4;
+  x.beginPath(); x.roundRect(px,py,pw,ph,12); x.fill(); x.stroke();
+  x.fillStyle="#33507e"; x.font="700 "+(ph*0.13)+"px Arial"; x.textAlign="center";
+  x.fillText(rec.trueState+" — THE NATURAL STATE", W/2, py+ph*0.2);
+  x.fillStyle="#12233f"; x.font="800 "+(ph*0.52)+"px ui-monospace,Menlo,monospace";
+  x.fillText(rec.truePlate, W/2, py+ph*0.74);
+  x.fillStyle="rgba(255,255,255,.55)"; x.font="600 11px ui-monospace,monospace";
+  x.fillText("PLATE CLOSE-UP · "+rec.cam+" · "+fmtT(rec.tsMin), W/2, H-10);
+}
+function plateChip(p, st){return '<span class="plate">'+p+"<small>"+st+"</small></span>";}
+function carOf(){const m=MAKES[(rnd()*MAKES.length)|0];return {car:m, color:COLORS[(rnd()*COLORS.length)|0]};}
+</script>
+
+<script>
+"use strict";
+/* ================= engine, history, views ================= */
+const $=id=>document.getElementById(id);
+const op=()=>$("operatorSel").value;
+function binomA(n,p){const m=n*p,sd=Math.sqrt(n*p*(1-p));
+  return Math.max(0,Math.min(n,Math.round(m+sd*(rnd()+rnd()+rnd()-1.5)*2)));}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+/* ---- pre-run: 21 days of pilot history so the console opens like a working system ---- */
+(function initHistory(){
+  for(let d=0; d<21; d++){const v=Math.round(SCANS_CAM_DAY*CAMS.length*(0.92+rnd()*0.16));
+    S.reads+=v; if(d>=7) S.buckets[d]=v; else S.deleted+=v;
+    for(let ci=0;ci<CAMS.length;ci++) S.camReads[ci]+=Math.round(v*CAM_SHARE[ci]);}
+  S.ocrOk=Math.round(S.reads*0.945); S.wit=3;
+  // 21 days at 9-camera volume: ~80 passes expected. 5 lost to OCR (counter only);
+  // 75 alerts with full records — outcomes include a few human errors, because real logs do.
+  const plan=[["clean","VERIFIED","correct confirm",43],["clean","REJECTED","missed hit",3],
+    ["wrongstate","REJECTED","correct reject",16],["wrongstate","VERIFIED","BAD CONFIRM",1],
+    ["misread","REJECTED","correct reject",11],["misread","VERIFIED","BAD CONFIRM",1]];
+  for(const [kind,status,outcome,n] of plan) for(let i=0;i<n;i++){
+    const e=hotlist[(rnd()*hotlist.length)|0];
+    const h=makeHit(kind,e,((rnd()*19+1)|0)*1440+((rnd()*1440)|0));
+    h.status=status; h.outcome=outcome;
+    h.by=["det.okafor","ofc.chen","sgt.reyes"][(rnd()*3)|0];
+    h.caseNo="2027-"+(1000+((rnd()*400)|0)); h.decidedMin=h.tsMin+((rnd()*50+5)|0);
+    hits.push(h);}
+  for(const kind of ["clean","wrongstate","misread"]){ // 3 fresh pending alerts from this morning
+    const e=hotlist[(rnd()*hotlist.length)|0];
+    const h=makeHit(kind,e, simMin-((rnd()*300+20)|0)); hits.push(h);}
+  hits.sort((a,b)=>b.tsMin-a.tsMin);
+  S.alerts=hits.length; S.passes=80; S.missed=5;
+  for(let i=0;i<130;i++){const co=carOf();
+    readsBuf.push({id:"R"+i, tsMin: simMin-((rnd()*2800)|0), cam:CAMS[(rnd()*CAMS.length)|0],
+      plate:plateBody(), state: rnd()<0.96?"AR":OSTATES[(rnd()*5)|0], seed:"seedR"+i, ...co});}
+  readsBuf.sort((a,b)=>b.tsMin-a.tsMin);
+})();
+function makeHit(kind, e, tsMin){
+  const co=carOf(); const id="HIT-"+(++hitSeq);
+  const h={id, tsMin, cam:CAMS[(rnd()*CAMS.length)|0], kind, entryPlate:e.plate, entryState:"AR",
+    entryCat:e.cat, status:"PENDING", by:null, caseNo:null, decidedMin:null, outcome:null,
+    seed:"seed"+id, ...co};
+  if(kind==="clean"){h.truePlate=e.plate; h.trueState="AR"; h.readPlate=e.plate;}
+  if(kind==="wrongstate"){h.truePlate=e.plate; h.trueState=OSTATES[(rnd()*OSTATES.length)|0]; h.readPlate=e.plate;}
+  if(kind==="misread"){h.truePlate=unmisread(e.plate); h.trueState="AR"; h.readPlate=e.plate;}
+  return h;}
+function spawnHit(kind){
+  const act=hotlist.filter(e=>e.active); const e=act[(rnd()*act.length)|0];
+  const h=makeHit(kind,e,simMin); hits.unshift(h); S.alerts++; S.passes++;
+  audit("ALERT",{hit:h.id, cam:h.cam, category:h.entryCat});
+  pushFeed({tsMin:simMin, cam:h.cam, plate:h.readPlate, state:"AR"}, true);
+  renderKPIs(); renderOpsHits(); renderHitBadge();
+  if($("view-hits").classList.contains("on")) renderHitList();
+  return h;}
+/* ---- Janus (shared by Janus view, Search, hot-list adds) ---- */
+function janusGate(user, tier, caseNo, auth, emergency){
+  if(user==="auditor.external") return {ok:false, why:"Outside-auditor accounts are read-only and cannot run queries.", stat:null};
+  if(user==="shared"){S.janus.bShared++; return {ok:false, why:"Shared / generic accounts are prohibited.", stat:"bShared"};}
+  if(!OPEN_CASES.has(caseNo)){S.janus.bCase++; return {ok:false, why:"Case number failed validation — no valid open case, no search.", stat:"bCase"};}
+  if(tier===3 && !auth && !emergency){S.janus.bAuth++; return {ok:false, why:"Tier 3 historical search requires prior judicial authorization.", stat:"bAuth"};}
+  if(tier===2) S.janus.t2++; else if(emergency) S.janus.t3e++; else S.janus.t3++;
+  return {ok:true};}
+/* ---- live tick: 10 sim-minutes ---- */
+let camScene=Array(CAMS.length).fill(null), lastReadMin=Array(CAMS.length).fill(simMin);
+function tick(){
+  simMin+=10;
+  const rt=Math.round(SCANS_CAM_DAY*CAMS.length/144*(0.92+rnd()*0.16));
+  S.reads+=rt; S.ocrOk+=binomA(rt,P_OCR);
+  const d=dayIdx(simMin); S.buckets[d]=(S.buckets[d]||0)+rt;
+  CAM_SHARE.forEach((sh,i)=>{S.camReads[i]+=Math.round(rt*sh);});
+  for(let i=0;i<4;i++){const co=carOf(); const ci=(rnd()*CAMS.length)|0;
+    const rec={id:"R"+simMin+"-"+i, tsMin:simMin-((rnd()*10)|0), cam:CAMS[ci],
+      plate:plateBody(), state:rnd()<0.96?"AR":OSTATES[(rnd()*5)|0], seed:"seedL"+simMin+"-"+i, ...co};
+    readsBuf.unshift(rec); if(readsBuf.length>4000) readsBuf.pop();
+    lastReadMin[ci]=rec.tsMin; camScene[ci]=rec; pushFeed(rec,false);}
+  const nT=poisson(rt*P_MATCH);
+  for(let i=0;i<nT;i++){ if(rnd()>P_OCR){S.missed++; S.passes++;
+      audit("OCR_MISS",{note:"hot-list pass misread — no alert raised"});}
+    else {const r=rnd(); spawnHit(r<0.62?"clean":(r<0.85?"wrongstate":"misread"));}}
+  const nW=poisson(rt*P_MATCH*0.18);
+  for(let i=0;i<nW;i++) spawnHit("wrongstate");
+  /* background Janus demand, scaled to 10 minutes */
+  const users=["ofc.alvarez","ofc.chen","det.okafor","sgt.reyes"];
+  for(let i=0,n=poisson(0.42);i<n;i++){const u=users[(rnd()*4)|0],c="2027-"+(1000+((rnd()*400)|0));
+    janusGate(u,2,c,false,false); audit("QUERY",{user:u,tier:2,case:c});}
+  for(let i=0,n=poisson(0.05);i<n;i++){const c="2027-"+(1000+((rnd()*400)|0));
+    if(rnd()<0.85){janusGate("det.okafor",3,c,true,false); audit("QUERY",{user:"det.okafor",tier:3,case:c,authorization:"WO-on-file"});}
+    else {S.janus.t3d++; audit("TIER3_DENIED",{case:c,note:"denied; logged; no search ran"});}}
+  for(let i=0,n=poisson(0.024);i<n;i++){const c="BOGUS-"+((rnd()*9999)|0);
+    janusGate("ofc.chen",2,c,false,false); audit("BLOCKED",{user:"ofc.chen",tier:2,case:c,reason:"case failed validation"});}
+  for(let i=0,n=poisson(0.008);i<n;i++){const c="2027-"+(1000+((rnd()*400)|0));
+    janusGate("det.okafor",3,c,false,false); audit("BLOCKED",{user:"det.okafor",tier:3,case:c,reason:"Tier 3 without judicial authorization"});}
+  /* retention + witness on day boundaries */
+  const cutoff=d-RETENTION_D;
+  for(const k of Object.keys(S.buckets)) if(+k<=cutoff){S.deleted+=S.buckets[k];
+    audit("RETENTION_DELETE",{rows:S.buckets[k], rule:"older than 14 days"}); delete S.buckets[k];}
+  readsBuf=readsBuf.filter(r=>r.tsMin>simMin-RETENTION_D*1440);
+  if(d>21 && d%7===0 && S.lastWitDay!==d){S.lastWitDay=d; S.wit++;
+    logQueue.then(()=>audit("WITNESS",{root:prevHash.slice(0,16), to:"City Clerk + public repo"}));}
+  if(d!==lastCpDay){lastCpDay=d; if(!rewriteBackup) publishCheckpoint();}
+  renderClock(); renderKPIs(); renderCamStats();
+  const ci=(simMin/10)%CAMS.length; if(camScene[ci]) drawScene($("camCv"+ci), camScene[ci]);
+  if($("view-janus").classList.contains("on")){renderJanusStats(); renderJanusRecent();}
+}
+/* ---- rendering: ops ---- */
+function renderClock(){$("simClock").textContent=fmtD(simMin)+" · "+fmtT(simMin).slice(-5)+" · Day "+(dayIdx(simMin)+1);}
+function pendingCount(){return hits.filter(h=>h.status==="PENDING").length;}
+function renderHitBadge(){const n=pendingCount(), b=$("hitBadge");
+  b.style.display=n?"inline-block":"none"; b.textContent=n;}
+function renderKPIs(){$("kReads").textContent=S.reads.toLocaleString();
+  $("kPending").textContent=pendingCount();
+  $("kVerified").textContent=hits.filter(h=>h.status==="VERIFIED"&&h.outcome==="correct confirm").length;
+  $("kDeleted").textContent=S.deleted.toLocaleString();
+  const win=Object.values(S.buckets).reduce((a,b)=>a+b,0);
+  $("kWindow").textContent=win.toLocaleString()+" inside the window · OCR "+(100*S.ocrOk/S.reads).toFixed(1)+"%";}
+function renderCamStats(){CAMS.forEach((c,i)=>{const el=$("camStat"+i); if(el) el.textContent=S.camReads[i].toLocaleString()+" reads";});}
+function pushFeed(rec,isHit){
+  const f=$("liveFeed"); const div=document.createElement("div");
+  if(isHit)div.className="hitrow";
+  div.innerHTML='<span class="t">'+fmtT(rec.tsMin)+'</span><span>'+rec.cam+'</span>'+
+    plateChip(rec.plate, rec.state)+(isHit?' <span class="tag pend">hot-list match</span>':"");
+  f.prepend(div); while(f.children.length>36) f.lastChild.remove();}
+function renderOpsHits(){
+  const w=$("opsHits"); w.innerHTML="";
+  hits.slice(0,8).forEach(h=>{const div=document.createElement("div");
+    div.style.cursor="pointer";
+    div.innerHTML='<span class="t">'+fmtT(h.tsMin)+'</span>'+plateChip(h.readPlate,"AR")+
+      ' <span class="tag '+(h.status==="PENDING"?"pend":h.status==="VERIFIED"?"ver":"rej")+'">'+h.status+'</span>'+
+      ' <span class="small">'+esc(h.entryCat)+'</span>';
+    div.addEventListener("click",()=>gotoHit(h.id)); w.appendChild(div);});
+  if(!hits.length) w.innerHTML='<div class="small">No alerts yet.</div>';}
+/* ---- Hit Review ---- */
+let selHit=null;
+function gotoHit(id){switchView("hits"); selectHit(id);}
+function renderHitList(){
+  const w=$("hitList"); w.innerHTML="";
+  const bar=document.createElement("div"); bar.style.marginBottom="10px";
+  bar.innerHTML='<button id="btnInject" class="primary">＋ Inject test alert (demo)</button> <span class="small">For quiet-day demos — logged as a TEST alert.</span>';
+  w.appendChild(bar);
+  bar.querySelector("#btnInject").addEventListener("click",()=>{
+    const r=rnd(); const h=spawnHit(r<0.5?"clean":(r<0.75?"wrongstate":"misread"));
+    h.test=true; audit("TEST_ALERT",{hit:h.id, note:"injected from console for demonstration"});
+    selectHit(h.id);});
+  const tbl=document.createElement("table");
+  tbl.innerHTML="<thead><tr><th>Time</th><th>Plate read</th><th>Category</th><th>Status</th></tr></thead>";
+  const tb=document.createElement("tbody");
+  [...hits].sort((a,b)=>(a.status==="PENDING"?0:1)-(b.status==="PENDING"?0:1)||b.tsMin-a.tsMin)
+    .forEach(h=>{const tr=document.createElement("tr"); tr.className="clickable"+(selHit===h.id?" sel":"");
+      tr.innerHTML="<td>"+fmtT(h.tsMin)+"</td><td>"+plateChip(h.readPlate,"AR")+"</td><td>"+esc(h.entryCat)+
+        (h.test?' <span class="tag cat">TEST</span>':"")+'</td><td><span class="tag '+
+        (h.status==="PENDING"?"pend":h.status==="VERIFIED"?"ver":"rej")+'">'+h.status+"</span></td>";
+      tr.addEventListener("click",()=>selectHit(h.id)); tb.appendChild(tr);});
+  tbl.appendChild(tb); w.appendChild(tbl);}
+function charDiff(a,b){let o=""; for(let i=0;i<Math.max(a.length,b.length);i++){
+  o += a[i]===b[i] ? esc(a[i]||"") : '<span style="color:var(--red);font-weight:800">'+esc(a[i]||"·")+"</span>";} return o;}
+function selectHit(id){
+  selHit=id; const h=hits.find(x=>x.id===id); if(!h) return;
+  renderHitList();
+  const ro = op()==="auditor.external";
+  const decided = h.status!=="PENDING";
+  $("hitDetail").innerHTML =
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:13px">'+
+    '<div><div class="small" style="margin-bottom:5px">CAMERA SNAPSHOT · '+h.cam+'</div><canvas class="scene" id="dScene" width="480" height="300"></canvas></div>'+
+    '<div><div class="small" style="margin-bottom:5px">PLATE CLOSE-UP (THE PHOTO)</div><canvas class="scene" id="dPlate" width="480" height="300"></canvas></div></div>'+
+    '<table style="margin-top:12px">'+
+    "<tr><th></th><th>Plate</th><th>State</th><th>Notes</th></tr>"+
+    "<tr><td><b>Camera read (OCR)</b></td><td>"+plateChip(h.readPlate,"AR")+"</td><td>AR</td><td class='small'>what the system thinks it saw</td></tr>"+
+    "<tr><td><b>Hot-list entry</b></td><td>"+plateChip(h.entryPlate,h.entryState)+"</td><td>"+h.entryState+"</td><td class='small'>"+esc(h.entryCat)+"</td></tr>"+
+    "<tr><td><b>Vehicle</b></td><td colspan='3' class='small'>"+esc(h.car[0])+" "+esc(h.car[1])+" · "+fmtT(h.tsMin)+" · "+h.cam+"</td></tr></table>"+
+    (decided
+      ? '<div style="margin-top:12px"><span class="tag '+(h.status==="VERIFIED"?"ver":"rej")+'">'+h.status+'</span> '+
+        '<span class="small">by '+esc(h.by||"")+" · case "+esc(h.caseNo||"")+" · "+fmtT(h.decidedMin||h.tsMin)+
+        (h.outcome ? " · outcome: <b>"+esc(h.outcome)+"</b>" : "")+"</span></div>"
+      : '<div class="formrow" style="margin-top:13px"><label class="f">Case number<input id="vCase" size="13" placeholder="2027-1001"></label>'+
+        '<button id="vConfirm" class="good" '+(ro?"disabled":"")+'>✓ Confirm hit</button>'+
+        '<button id="vReject" class="bad" '+(ro?"disabled":"")+'>✕ Reject — not a match</button>'+
+        (ro?'<span class="small">Auditor accounts are read-only.</span>':"")+'</div>'+
+        '<div class="msg" id="vMsg"></div>'+
+        '<p class="small">Compare the <b>photo</b> against the hot-list entry — characters <b>and</b> state. The camera read is not the photo.</p>');
+  drawScene($("dScene"), h); drawPlateZoom($("dPlate"), h);
+  if(!decided && !ro){
+    $("vConfirm").addEventListener("click",()=>decideHit(h,true));
+    $("vReject").addEventListener("click",()=>decideHit(h,false));}}
+function decideHit(h, confirm){
+  const caseNo=$("vCase").value.trim();
+  if(!OPEN_CASES.has(caseNo)){$("vMsg").innerHTML='<span class="no">A valid case number is required to verify a hit — the attempt was logged.</span>';
+    audit("BLOCKED",{user:op(), action:"hit verification", hit:h.id, reason:"case failed validation"}); return;}
+  const correct = confirm ? h.kind==="clean" : h.kind!=="clean";
+  h.status = confirm ? "VERIFIED" : "REJECTED";
+  h.by=op(); h.caseNo=caseNo; h.decidedMin=simMin;
+  h.outcome = correct ? (confirm?"correct confirm":"correct reject") : (confirm?"BAD CONFIRM":"missed hit");
+  audit(correct?"VERIFY_OK":"VERIFY_FAIL",{hit:h.id, by:h.by, case:caseNo,
+    result:(confirm?"confirmed":"rejected")+" — "+h.outcome, kind:h.kind});
+  renderKPIs(); renderHitBadge(); renderOpsHits(); selectHit(h.id);
+  const m=$("vMsg");}
+/* ---- Search ---- */
+$("btnSearch").addEventListener("click",()=>{
+  const user=op(), tier=+$("qTier").value, caseNo=$("qCase").value.trim(), auth=$("qAuth").checked;
+  const g=janusGate(user,tier,caseNo,auth,false);
+  const msg=$("searchMsg"), res=$("searchResults");
+  if(!g.ok){msg.innerHTML='<span class="no">BLOCKED: '+esc(g.why)+"</span>"; res.innerHTML="";
+    audit("BLOCKED",{user, action:"read search", tier, case:caseNo, reason:g.why}); renderJanusStats(); return;}
+  audit("QUERY",{user, type:"read search", tier, case:caseNo});
+  const frag=$("qPlate").value.trim().toUpperCase(), cam=$("qCam").value;
+  const rows=[];
+  for(const r of readsBuf){ if(frag && !r.plate.includes(frag)) continue; if(cam && r.cam!==cam) continue;
+    rows.push({tsMin:r.tsMin, cam:r.cam, plate:r.plate, state:r.state, kind:"read", status:"—"}); }
+  for(const h of hits){ if(frag && !(h.readPlate.includes(frag)||h.truePlate.includes(frag))) continue;
+    if(cam && h.cam!==cam) continue;
+    rows.push({tsMin:h.tsMin, cam:h.cam, plate:h.readPlate, state:"AR", kind:"HIT", status:h.status, id:h.id}); }
+  rows.sort((a,b)=>b.tsMin-a.tsMin);
+  msg.innerHTML='<span class="ok">OK — search ran through Janus and was logged.</span> <span class="small">'+rows.length+" result(s). Non-hit reads are a sampled buffer in this demo; production searches the full retained store (14 days).</span>";
+  res.innerHTML = rows.length ? "<table><thead><tr><th>Time</th><th>Camera</th><th>Plate</th><th>State</th><th>Type</th><th>Status</th></tr></thead><tbody>"+
+    rows.slice(0,100).map(r=>"<tr"+(r.id?' class="clickable" data-hit="'+r.id+'"':"")+"<td>"+fmtT(r.tsMin)+"</td><td>"+r.cam+"</td><td>"+
+      plateChip(r.plate,r.state)+"</td><td>"+r.state+'</td><td>'+(r.kind==="HIT"?'<span class="tag pend">HIT</span>':"read")+"</td><td>"+r.status+"</td></tr>").join("")+
+    "</tbody></table>" : '<p class="small">No matching reads in the retained window.</p>';
+  res.querySelectorAll("[data-hit]").forEach(tr=>tr.addEventListener("click",()=>gotoHit(tr.dataset.hit)));
+  renderJanusStats();});
+/* ---- Hot list ---- */
+let hlPage=0;
+function renderHL(){
+  const frag=$("hlSearch").value.trim().toUpperCase(), cat=$("hlCat").value;
+  const list=hotlist.filter(e=>e.active && (!frag||e.plate.includes(frag)) && (!cat||e.cat===cat));
+  $("hlCount").textContent=list.length;
+  const pages=Math.max(1,Math.ceil(list.length/25)); hlPage=Math.min(hlPage,pages-1);
+  $("hlPageInfo").textContent="Page "+(hlPage+1)+" of "+pages;
+  $("hlBody").innerHTML=list.slice(hlPage*25,hlPage*25+25).map(e=>{
+    const i=hotlist.indexOf(e);
+    return "<tr><td>"+plateChip(e.plate,e.state)+"</td><td>"+e.state+'</td><td><span class="tag cat">'+esc(e.cat)+"</span></td><td class='small'>"+
+      esc(e.source)+"</td><td class='small'>"+fmtD(e.addedMin)+"</td><td class='small'>"+fmtD(e.expMin)+
+      '</td><td><button class="bad" data-deact="'+i+'">Deactivate</button></td></tr>';}).join("");
+  $("hlBody").querySelectorAll("[data-deact]").forEach(b=>b.addEventListener("click",()=>{
+    const e=hotlist[+b.dataset.deact];
+    if(op()==="auditor.external"||op()==="ofc.chen"){$("hlMsg").innerHTML='<span class="no">Your role cannot remove hot-list entries.</span>'; return;}
+    e.active=false; audit("HOTLIST_REMOVE",{plate:e.plate, by:op()}); renderHL();}));}
+$("hlSearch").addEventListener("input",()=>{hlPage=0;renderHL();});
+$("hlCat").addEventListener("change",()=>{hlPage=0;renderHL();});
+$("hlPrev").addEventListener("click",()=>{hlPage=Math.max(0,hlPage-1);renderHL();});
+$("hlNext").addEventListener("click",()=>{hlPage++;renderHL();});
+$("btnHlAdd").addEventListener("click",()=>{
+  const plate=$("hlPlate").value.trim().toUpperCase(), st=$("hlState").value.trim().toUpperCase()||"AR",
+        cat=$("hlCategory").value, caseNo=$("hlCase").value.trim(), days=+($("hlDays").value||30);
+  const msg=$("hlMsg");
+  if(op()==="auditor.external"||op()==="ofc.chen"){msg.innerHTML='<span class="no">Your role cannot add hot-list entries.</span>';
+    audit("BLOCKED",{user:op(), action:"hotlist add", reason:"role"}); return;}
+  if(!/^[A-Z0-9]{3,8}$/.test(plate)){msg.innerHTML='<span class="no">Plate must be 3–8 letters/numbers.</span>'; return;}
+  if(!OPEN_CASES.has(caseNo)){msg.innerHTML='<span class="no">BLOCKED: case number failed validation.</span>';
+    S.janus.bCase++; audit("BLOCKED",{user:op(), action:"hotlist add", case:caseNo, reason:"case failed validation"}); return;}
+  hotlist.unshift({plate, state:st, cat, source:"Local — case "+caseNo, addedMin:simMin,
+    expMin:simMin+days*1440, active:true});
+  audit("HOTLIST_ADD",{plate, state:st, category:cat, case:caseNo, by:op()});
+  msg.innerHTML='<span class="ok">Added — '+esc(plate)+' is now being looked for. The add is in the audit log.</span>';
+  hlPage=0; renderHL();});
+/* ---- Janus view ---- */
+function renderJanusStats(){const j=S.janus;
+  $("jT2").textContent=j.t2; $("jT3").textContent=j.t3; $("jT3D").textContent=j.t3d; $("jT3E").textContent=j.t3e;
+  $("jBCase").textContent=j.bCase; $("jBAuth").textContent=j.bAuth; $("jBShared").textContent=j.bShared;
+  $("jMine").textContent=j.mine;}
+$("btnJanus").addEventListener("click",()=>{
+  const user=op(), tier=+$("jTier").value, caseNo=$("jCase").value.trim(), auth=$("jAuth").checked;
+  const g=janusGate(user,tier,caseNo,auth,false); S.janus.mine++;
+  const out=$("janusOut");
+  if(!g.ok){out.innerHTML='<span class="no">BLOCKED: '+esc(g.why)+"</span>";
+    audit("BLOCKED",{user, tier, case:caseNo, reason:g.why});}
+  else{out.innerHTML='<span class="ok">OK — query ran through Janus and was logged.</span>';
+    audit("QUERY",{user, tier, case:caseNo, authorization:auth?"WO-on-file":"n/a"});}
+  renderJanusStats(); renderJanusRecent();});
+function renderJanusRecent(){
+  const w=$("janusRecent"); w.innerHTML="";
+  [...log].reverse().filter(e=>["QUERY","BLOCKED","TIER3_DENIED"].includes(e.kind)).slice(0,14)
+    .forEach(e=>{const div=document.createElement("div");
+      div.innerHTML='<span class="t">'+fmtT(e.min)+'</span><span class="tag '+
+        (e.kind==="QUERY"?"ver":"rej")+'">'+e.kind+'</span><span class="mono">'+
+        esc(Object.entries(e.fields).map(([k,v])=>k+"="+v).join(" "))+"</span>";
+      w.appendChild(div);});
+  if(!w.children.length) w.innerHTML='<div class="small">No Janus traffic yet.</div>';}
+/* ---- Audit view ---- */
+function renderAudit(){
+  const tb=$("auditBody"); if(!tb) return;
+  tb.innerHTML=[...log].slice(-200).reverse().map(e=>"<tr><td>"+e.seq+"</td><td class='small'>"+fmtT(e.min)+
+    "</td><td><b>"+e.kind+"</b></td><td class='mono'>"+esc(Object.entries(e.fields).map(([k,v])=>k+"="+v).join(" "))+
+    "</td><td class='mono'>"+e.hash.slice(0,10)+"…</td></tr>").join("");
+  const wits=log.filter(e=>e.kind==="WITNESS");
+  $("witList").innerHTML = (wits.length? wits.map(e=>'<div class="wititem"><b>Week root published</b> · '+
+    fmtD(e.min)+'<br><span class="mono">'+esc(e.fields.root||"")+'…</span> <span class="small">→ City Clerk + public repo</span></div>').join("")
+    : '<p class="small">No witness publications yet this session — pre-pilot weeks 1–3 were published before this console session (see Reports).</p>')+
+    '<p class="small">Publications so far: <b>'+S.wit+"</b></p>";
+  renderCheckpoints();}
+$("btnVerify2").addEventListener("click",async()=>{
+  $("chainBadge").textContent="recomputing every hash…"; await logQueue;
+  const r=await verifyChain();
+  $("chainBadge").innerHTML = r.ok ? '<span class="ok">VERIFIED ✓ — '+r.n+" entries, every hash and link intact</span>"
+    : '<span class="no">BROKEN at entry #'+r.at+"</span>";});
+function download(name, text){const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([text],{type:"application/json"})); a.download=name; a.click();}
+$("btnExportLog").addEventListener("click",()=>download("noctua-audit-log.json",
+  JSON.stringify({exported_by:op(), sim_time:fmtT(simMin), entries:log},null,1)));
+/* ---- Tamper test (security demo) ---- */
+let tamperBackup=null;
+$("btnTamper").addEventListener("click",()=>{
+  const e=log.find(x=>x.kind==="QUERY"&&x.seq>2)||log[3];
+  if(!e){$("chainBadge").textContent="run some queries first, then tamper."; return;}
+  tamperBackup={seq:e.seq, fields:JSON.parse(JSON.stringify(e.fields))};
+  e.fields.case=(e.fields.case||"2027-1000")+"-EDITED";
+  $("btnRestore").disabled=false; $("btnTamper").disabled=true;
+  $("chainBadge").innerHTML='<span class="no">Entry #'+e.seq+' was just quietly edited (a case number changed) — exactly what a dishonest insider would do. It was NOT logged, because tampering never logs itself. Now press Verify chain.</span>';});
+$("btnRestore").addEventListener("click",()=>{
+  if(!tamperBackup) return;
+  const e=log[tamperBackup.seq]; e.fields=tamperBackup.fields; tamperBackup=null;
+  $("btnRestore").disabled=true; $("btnTamper").disabled=false;
+  $("chainBadge").textContent="entry restored — verify again to confirm the chain is whole.";});
+/* ---- Bypass test (security demo): try to go around Janus ---- */
+$("btnBypass").addEventListener("click",async()=>{
+  const me=op(), steps=$("bypassSteps"), out=$("bypassOut");
+  $("btnBypass").disabled=true; steps.innerHTML=""; out.innerHTML="";
+  const lines=[
+    '→ Frigate web UI / API, as a human user … <span class="no"><b>refused</b></span> — in the hardened configuration Frigate has no human-reachable interface. It is a write-only sensor: frames in, reads out to Janus, nothing to log into.',
+    '→ Frigate event store / snapshots, read directly … <span class="no"><b>no plate data</b></span> — Frigate keeps only a short rolling buffer (minutes) of frames awaiting ingest. It is not an archive; there is nothing to search.',
+    '→ Janus database file, opened directly … <span class="no"><b>not reachable</b></span> — the store is not on an operator-accessible share. The Janus API, under a named account with a validated case number, is the only path in.',
+    'Result: <b>no plate data returned.</b> And the attempt itself is now in the audit log above (look for <b>BYPASS_ATTEMPT</b>), under the account <span class="kbd">'+esc(me)+'</span>.'];
+  for(const L of lines){const d=document.createElement("div"); d.className="small"; d.innerHTML=L;
+    steps.appendChild(d); await new Promise(r=>setTimeout(r,400));}
+  await audit("BYPASS_ATTEMPT",{by:me, method:"direct Frigate / database read", result:"no plate data returned"});
+  out.innerHTML='<span class="ok">Attempt returned nothing — and it was logged.</span>';
+  $("btnBypass").disabled=false;});
+/* ---- Daily signed checkpoints (Sentinel v2 witness) ---- */
+let checkpoints=[], lastCpDay=dayIdx(simMin);
+async function publishCheckpoint(){
+  await logQueue;
+  const day=dayIdx(simMin), count=log.length, root=prevHash;
+  const sig=(await sha("CLERK-WITNESS|"+day+"|"+count+"|"+root)).slice(0,16);
+  checkpoints.push({day,count,root,sig});
+  renderCheckpoints();}
+function renderCheckpoints(){
+  const tb=$("cpBody"); if(!tb) return;
+  tb.innerHTML = checkpoints.length ? checkpoints.map(cp=>"<tr><td class='small'>"+fmtD(cp.day*1440)+
+    "</td><td>"+cp.count+"</td><td class='mono'>"+cp.root.slice(0,16)+"…</td><td class='mono'>"+cp.sig+"…</td></tr>").join("")
+    : '<tr><td colspan="4" class="small">No checkpoints yet this session.</td></tr>';}
+async function checkCheckpoints(){
+  if(!checkpoints.length) return {ok:false, why:"No checkpoints have been published yet — publish one first."};
+  for(const cp of checkpoints){
+    const sig=(await sha("CLERK-WITNESS|"+cp.day+"|"+cp.count+"|"+cp.root)).slice(0,16);
+    if(sig!==cp.sig) return {ok:false, why:"The checkpoint for "+fmtD(cp.day*1440)+" fails its own signature check — the Clerk's record itself does not verify."};
+    if(log.length<cp.count) return {ok:false, why:"The log now holds "+log.length+" entries, but the "+fmtD(cp.day*1440)+" checkpoint recorded "+cp.count+" — entries are missing (truncation)."};
+    if(log[cp.count-1].hash!==cp.root) return {ok:false, why:"Root mismatch at the "+fmtD(cp.day*1440)+" checkpoint: the chain's root after "+cp.count+" entries no longer equals the root the Clerk published ("+cp.root.slice(0,16)+"…). The history in the log is not the history the Clerk witnessed."};}
+  return {ok:true, n:checkpoints.length};}
+$("btnPublishCp").addEventListener("click",async()=>{
+  if(rewriteBackup){$("rewriteOut").innerHTML='<span class="no">The Clerk publishes from her own streamed copy, outside this system — restore the witnessed chain first.</span>'; return;}
+  await publishCheckpoint();
+  $("rewriteOut").innerHTML='<span class="ok">Checkpoint published — today\'s root hash and entry count are now held outside this system.</span>';});
+$("btnCheckCp").addEventListener("click",async()=>{
+  $("rewriteOut").textContent="comparing the chain against the Clerk's checkpoints…";
+  await logQueue;
+  const r=await checkCheckpoints();
+  $("rewriteOut").innerHTML = r.ok ? '<span class="ok">CHECKPOINTS MATCH ✓ — all '+r.n+' published checkpoint(s) agree with the current chain: roots and entry counts.</span>'
+    : '<span class="no">CHECKPOINT MISMATCH ✗ — '+esc(r.why)+"</span>";});
+/* ---- Full-chain rewrite (security demo): the sophisticated insider ---- */
+let rewriteBackup=null;
+$("btnRewrite").addEventListener("click",async()=>{
+  if(rewriteBackup) return;
+  if(tamperBackup){$("rewriteOut").innerHTML='<span class="no">Restore the tampered entry above first — one attack at a time.</span>'; return;}
+  await logQueue;
+  const target=log.find(x=>x.kind==="QUERY"&&x.seq>2)||log[3];
+  if(!target){$("rewriteOut").textContent="run some queries first, then rewrite."; return;}
+  if(timer){stopTimer(); $("runBtn").textContent="▶ Resume live feed";}
+  $("rewriteOut").textContent="rewriting history and recomputing every hash…";
+  rewriteBackup={entries:log.map(e=>({fields:JSON.parse(JSON.stringify(e.fields)), prev:e.prev, hash:e.hash})), prevHash};
+  target.fields.case=(target.fields.case||"2027-1000")+"-EDITED";
+  let prev="GENESIS";
+  for(const e of log){const p=JSON.stringify({m:e.min,kind:e.kind,...e.fields});
+    const h=await sha(prev+"|"+p); e.prev=prev; e.hash=h; prev=h;}
+  prevHash=prev;
+  $("btnRewrite").disabled=true; $("btnTamper").disabled=true; $("btnRestoreRewrite").disabled=false;
+  renderAudit();
+  $("rewriteOut").innerHTML='<span class="no">Done. Entry #'+target.seq+' was edited and the <b>entire chain was recomputed</b> — every hash is internally consistent again. Now press <b>Verify chain</b> above: it will PASS. Then press <b>Check published checkpoints</b>: the Clerk\'s copies were published before the rewrite.</span>';});
+$("btnRestoreRewrite").addEventListener("click",async()=>{
+  if(!rewriteBackup) return;
+  await logQueue;
+  const n=rewriteBackup.entries.length;
+  for(let i=0;i<n;i++){log[i].fields=rewriteBackup.entries[i].fields;
+    log[i].prev=rewriteBackup.entries[i].prev; log[i].hash=rewriteBackup.entries[i].hash;}
+  let prev=n?log[n-1].hash:"GENESIS";
+  for(let i=n;i<log.length;i++){const e=log[i];
+    const p=JSON.stringify({m:e.min,kind:e.kind,...e.fields});
+    const h=await sha(prev+"|"+p); e.prev=prev; e.hash=h; prev=h;}
+  prevHash=prev; rewriteBackup=null;
+  $("btnRestoreRewrite").disabled=true; $("btnRewrite").disabled=false; $("btnTamper").disabled=false;
+  renderAudit();
+  $("rewriteOut").innerHTML='<span class="ok">Witnessed chain restored — the edited entry is back to its published form, and anything written while the forged chain was live has been re-linked onto the true chain. Verify chain and Check published checkpoints both pass now.</span>';});
+/* ---- Reports ---- */
+function barRow(label, val, max, cls){const pct=max?Math.round(100*val/max):0;
+  return '<div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;font-size:12.5px"><span>'+esc(label)+'</span><b>'+val.toLocaleString()+'</b></div>'+
+  '<div style="height:9px;background:rgba(255,255,255,.06);border-radius:99px;overflow:hidden"><div class="bar '+(cls||"")+'" style="height:100%;width:'+pct+'%"></div></div></div>';}
+function renderReports(){
+  const ver=hits.filter(h=>h.outcome==="correct confirm").length,
+        rej=hits.filter(h=>h.status==="REJECTED").length,
+        bad=hits.filter(h=>h.outcome==="BAD CONFIRM").length,
+        obs=(S.passes/S.reads*100000).toFixed(2), exp=(S.reads*P_MATCH).toFixed(1);
+  $("repTiles").innerHTML=
+    [["Plate reads",S.reads],["Alerts",S.alerts],["Verified hits",ver],["Reads deleted (14-day)",S.deleted]]
+    .map(([k,v])=>'<div class="kpi"><div class="k">'+k+'</div><div class="v">'+v.toLocaleString()+'</div></div>').join("");
+  const cmax=Math.max(...S.camReads);
+  $("repCams").innerHTML=CAMS.map((c,i)=>barRow(c+" reads",S.camReads[i],cmax)).join("");
+  const cats={}; hits.forEach(h=>cats[h.entryCat]=(cats[h.entryCat]||0)+1);
+  const camax=Math.max(1,...Object.values(cats));
+  $("repCats").innerHTML=Object.entries(cats).map(([k,v])=>barRow(k,v,camax,"g")).join("")||'<p class="small">No alerts yet.</p>';
+  $("repOutcomes").innerHTML=
+    barRow("Correct confirms",ver,Math.max(1,hits.length))+
+    barRow("Rejected (all)",rej,Math.max(1,hits.length))+
+    barRow("Bad confirms",bad,Math.max(1,hits.length))+
+    barRow("Pending",pendingCount(),Math.max(1,hits.length))+
+    '<p class="small">OCR misses (no alert raised): <b>'+S.missed+"</b></p>";
+  $("repRate").innerHTML="This console so far: <b>"+S.passes.toLocaleString()+"</b> hot-list passes in <b>"+
+    S.reads.toLocaleString()+"</b> reads → <b>"+obs+" per 100k</b>, against <b>"+exp+"</b> passes expected at CPD's 8.56 per 100k. "+
+    (Math.abs(obs-8.56)<2.5 ? "On rate — the pilot is seeing what Cabot's record predicts." : "Within sampling noise at this volume; the day-90 report carries the audited figure.");}
+$("btnPrint").addEventListener("click",()=>window.print());
+/* ---- System ---- */
+function renderSystem(){
+  $("camTable").innerHTML=CAMS.map((c,i)=>"<tr><td><b>"+c+"</b></td><td>"+
+    CAM_TYPES[i]+"</td><td><span class='tag ver'>ONLINE</span></td><td>"+
+    S.camReads[i].toLocaleString()+"</td><td class='small'>"+fmtT(lastReadMin[i])+"</td></tr>").join("");}
+$("btnExportAll").addEventListener("click",()=>download("noctua-demo-export.json",
+  JSON.stringify({exported_by:op(), sim_time:fmtT(simMin), stats:S, hits, hotlist, audit:log},null,1)));
+$("btnResetDemo").addEventListener("click",()=>location.reload());
+/* ---- nav + controls ---- */
+const TITLES={ops:"Operations",hits:"Hit Review",search:"Search Reads",hotlist:"Hot List",
+  janus:"Janus Queries",audit:"Audit Log — Sentinel",reports:"Reports",system:"System"};
+function switchView(v){
+  document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on",s.id==="view-"+v));
+  document.querySelectorAll(".navbtn").forEach(b=>b.classList.toggle("on",b.dataset.view===v));
+  $("viewTitle").textContent=TITLES[v];
+  if(v==="hits")renderHitList(); if(v==="hotlist")renderHL(); if(v==="audit")renderAudit();
+  if(v==="reports")renderReports(); if(v==="system")renderSystem();
+  if(v==="janus"){renderJanusStats(); renderJanusRecent();}}
+document.querySelectorAll(".navbtn").forEach(b=>b.addEventListener("click",()=>switchView(b.dataset.view)));
+let timer=null;
+function startTimer(){stopTimer(); timer=setInterval(tick, +$("speedSel").value);}
+function stopTimer(){if(timer)clearInterval(timer); timer=null;}
+$("runBtn").addEventListener("click",()=>{
+  if(timer){stopTimer(); $("runBtn").textContent="▶ Resume live feed";}
+  else{startTimer(); $("runBtn").textContent="⏸ Pause live feed";}});
+$("speedSel").addEventListener("change",()=>{if(timer)startTimer();});
+$("stepBtn").addEventListener("click",()=>{for(let i=0;i<6;i++) tick();});
+/* ---- init ---- */
+audit("SYSTEM",{event:"console session started", note:"21 days of pilot history loaded (demo)", operator:op()});
+audit("SYSTEM",{event:"policy in force", retention_days:RETENTION_D, hold_days:HOLD_D, cameras:CAMS.length});
+logQueue.then(()=>publishCheckpoint()); // session-start checkpoint, held by the Clerk (simulated)
+renderClock(); renderKPIs(); renderCamStats(); renderHitBadge(); renderOpsHits(); renderJanusStats();
+(function buildCams(){const g=$("camGrid");
+  CAMS.forEach((c,i)=>{const d=document.createElement("div"); d.className="card s4";
+    d.innerHTML='<div class="camhead"><b><span class="dot"></span>'+c+' · '+CAM_TYPES[i]+'</b><span id="camStat'+i+'">0 reads</span></div><canvas class="scene" id="camCv'+i+'" width="480" height="300"></canvas>';
+    g.appendChild(d);});
+  const q=$("qCam"); CAMS.forEach(c=>{const o=document.createElement("option"); o.textContent=c; q.appendChild(o);}); renderCamStats();})();
+CAMS.forEach((c,i)=>{const co=carOf();
+  const rec={tsMin:simMin-30-i*17, cam:c, plate:plateBody(), state:"AR", seed:"seedInit"+i, ...co,
+    truePlate:plateBody(), trueState:"AR"};
+  camScene[i]=rec; drawScene($("camCv"+i), rec);});
+/* seed the live feed with the most recent sampled reads */
+[...readsBuf].slice(0,14).reverse().forEach(r=>pushFeed(r,false));
+hits.slice(0,3).forEach(h=>pushFeed({tsMin:h.tsMin,cam:h.cam,plate:h.readPlate,state:"AR"},true));
+startTimer();
+</script>
+</body>
+</html>
