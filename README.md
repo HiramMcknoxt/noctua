@@ -21,6 +21,17 @@
 > Council separately authorizes a pilot after a public hearing. See
 > [RELEASES.md](RELEASES.md) for the per-version record.
 
+**Round 10 update (Nov 26, 2026):** Round 10 — the final code gate for
+1.2.7 — has closed **NOT CONVERGED**, on a single branch of one criterion
+(criterion 2): an anchor-fence reason-promotion gap in 1.2.7, in which a
+genuine checkpoint disagreement evaluated while the anchor fence stands for
+a file-state reason is never promoted into the fence record, so a later
+clean evaluation can clear the fence with the disagreement leaving no
+trace. A scoped **1.2.8** micro-build addressing that branch is
+commissioned; the full Round 10 record is in
+[`council10/`](council10/). The builds here remain **DEVELOPMENT BUILDS —
+NOT DEPLOYMENT-READY**.
+
 Cabot, Arkansas (pop. ~26k) currently leases 9 Flock ALPR cameras (8 Falcon + 1 Flex; $27,500 invoiced in 2026 — invoiced, not shown paid — on staggered 24-month tranches; the hardware remains Flock's). The department's own reported figures for Jan. 1 – Jun. 30, 2026: 8,040,000 plates scanned, 688 hot-list matches (8.56 per 100,000 reads), 7 stolen vehicles recovered, 19 arrests.
 
 This repository is the working design for a possible city-owned alternative: commodity LPR cameras, open-source detection/OCR, all data on a city server, designed in the open by a Citizens Commission, and implemented only if the City Council separately authorizes it after a public hearing. NOCTUA is a codename (the little owl, *Athene noctua*); the formal documents keep their plain titles.
