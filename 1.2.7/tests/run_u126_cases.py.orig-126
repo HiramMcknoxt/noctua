@@ -1,0 +1,1420 @@
+# ORIGINAL pre-adaptation version, kept beside the adapted file per the
+# round-8 R-F condition as amended (round 9, council9/SYNTHESIS S5): the
+# 1.2.7 adaptations are (1) u9_populated_arrival RE-AIMED at the V4
+# ceremony semantics that replaced the U9 marker mechanism it asserted
+# (the round-9 adjudication rejected the shipped mechanism; the case's
+# subject — an unprovisioned populated arrival must not serve key-only
+# humans its data — is unchanged, as is its discrimination against
+# janus125), and (2) u11_version_sweep's expected version follows the
+# shipping build (1.2.7), as it did at 1.2.6. Every other case is
+# byte-identical to this original.
+#!/usr/bin/env python3
+#  ___
+# (o o)   VESPER · the evening watch
+# (   )   Vesper, for Corey Spangler — Cabot, Arkansas
+#  ^^^
+"""U battery — the 1.2.6 acceptance cases (council round 8).
+
+Each case runs against the TEST tree (janus126) and the BASELINE
+tree (janus125) and passes only when the invariant HOLDS on the
+test tree and does NOT hold on the baseline (the discrimination
+standard of the Q/R/S/T batteries). Cases are keyed to the
+commission items in council8/SYNTHESIS.md section 6 + Addendum 2:
+
+  U1  lockout scope (only post-verified-key human second-factor
+      failures count; machines never lock; provision.py unlock)
+  U2  anchor-fence exit (repair auto-clears + ANCHOR_CLEARED;
+      error flag persists only after 3 consecutive failures)
+  U3  sink divergence: bounded resolution cost + the
+      supervisor-chained acceptance ceremony
+  U4  confidence domain [0,1] else 400; superseded PENDING hit
+      becomes PENDING_SUPERSEDED, linked, supervisor-disposed
+  U5  boot refuses DEMO_MODE=1 on a provisioned install
+  U6  non-supervisor hotlist adds are a uniform 202 submission;
+      the supervisor queue decides; registry validation precedes
+      the suppression check (no bogus-list probe)
+  U7  pickup token (minted at re-enroll confirm, shown only to
+      the confirmer, hashed at rest, single-use, windowed) and
+      users-file rotation divergence fails unconsumed
+  U8  sink-status fault injection (a directory at the spool
+      path) — sink_status reports, never raises
+  U9  populated-arrival unprovisioned installs are locked down
+      (install_born_empty separates ceremony from arrival)
+  U10 key escrow defaults outside the backup tree; an inside
+      path is refused before anything is written
+  U11 smalls: version sweep, empty-PEM fingerprint, Tier 3
+      pref:/invalid fragment expiry, unique TOTP temp files,
+      scrubber digit look-alikes, disabled-account pickup and
+      re-enroll refusal, alert_check naming, _sql_order_covers
+      failing closed
+  U12 sink tail reconciliation (torn tail truncated, never a
+      whole-chain redelivery; truncated sink is a named
+      divergence with obligations preserved)
+  U13 restore key custody (keyless set leaves host keys) and
+      the R-A closure (provisioned outgoing => incoming treated
+      provisioned)
+  U14 anchor evaluation cost (signature verification memoized
+      per checkpoint content; a repeat window verifies nothing
+      new)
+
+Usage: python3 tests/run_u126_cases.py [test_tree] [baseline_tree]
+       [name-filter]
+"""
+import importlib.util
+import json
+import os
+import shutil
+import sqlite3
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TEST_TREE = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 \
+    else os.path.dirname(HERE)
+BASE_TREE = os.path.abspath(sys.argv[2]) if len(sys.argv) > 2 \
+    else os.path.join(os.path.dirname(TEST_TREE), "janus125")
+ONLY = sys.argv[3] if len(sys.argv) > 3 else None
+
+
+def _load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+T = _load("t_battery_harness", os.path.join(HERE, "run_t125_cases.py"))
+Boot, req, audit_kinds = T.Boot, T.req, T.audit_kinds
+_enroll, _totp, step = T._enroll, T._totp, T.step
+_req_totp, ingest, run_checkpoint = T._req_totp, T.ingest, T.run_checkpoint
+DET, PAT, SUP, SUP2, AUD, CA, ING, JOB = (T.DET, T.PAT, T.SUP,
+                                         T.SUP2, T.AUD, T.CA,
+                                         T.ING, T.JOB)
+KEYS = T.KEYS
+WORK = os.path.join(TEST_TREE, "scratch", "u-battery")
+os.makedirs(WORK, exist_ok=True)
+RESULTS = []
+
+
+def report(name, ok, detail):
+    RESULTS.append((name, ok))
+    print("CASE %s %s :: %s" % (name, "PASS" if ok else "FAIL",
+                                json.dumps(detail)[:1600]))
+    sys.stdout.flush()
+
+
+def run_unit(tree, code, env_extra=None):
+    """Run a python snippet against a tree's modules in a
+    subprocess; the snippet prints one JSON object. Returns
+    (rc, parsed-or-None, raw_stdout, stderr_tail)."""
+    d = os.path.join(WORK, "unit-%d" % (abs(hash(code)) % 99999))
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    path = os.path.join(d, "unit.py")
+    with open(path, "w") as f:
+        f.write(code)
+    env = dict(os.environ)
+    env.update({"NOCTUA_DB": os.path.join(d, "u.db"),
+                "NOCTUA_AUDIT_KEY": "u-battery-audit-key",
+                "NOCTUA_SENTINEL_SINK": os.path.join(d, "sink.log"),
+                "PYTHONPATH": tree})
+    if env_extra:
+        env.update(env_extra)
+    r = subprocess.run([sys.executable, path], env=env,
+                       capture_output=True, text=True, timeout=600)
+    parsed = None
+    for line in reversed(r.stdout.strip().splitlines()):
+        try:
+            parsed = json.loads(line)
+            break
+        except ValueError:
+            continue
+    return r.returncode, parsed, r.stdout, r.stderr[-500:]
+
+
+# ------------------------------------------------------------------
+# U1 — lockout scope
+# ------------------------------------------------------------------
+def u1_lockout_scope(tree, side):
+    """A keyless/wrong-key spray at machine identities and both
+    supervisors locks nothing (the sprayed parties keep working
+    with their correct credentials); five post-key second-factor
+    failures DO lock a human; provision.py unlock clears the
+    lock live and the unlock chains."""
+    A = Boot(tree, "u1a-%s" % side).start()
+    try:
+        p = A.port
+        det_secret, det_codes, r = _enroll(A, DET)
+        sup_secret, _sc, r = _enroll(A, SUP, confirm_by=DET,
+                                     confirm_code=det_codes[0])
+        if not det_secret or not sup_secret:
+            return False, {"enroll_rc": r.returncode}
+        s, _b = _req_totp(p, DET, _totp(det_secret, step()))
+        det_active = s
+        s, _b = _req_totp(p, SUP, _totp(sup_secret, step()))
+        sup_active = s
+        # the spray: wrong keys naming ingest and both supervisors
+        for target in (ING, SUP, SUP2):
+            for _i in range(6):
+                req(p, "POST", "/reads", target,
+                    {"plate": "SPRY11", "state": "AR",
+                     "cam": "CAM-01", "conf": 0.9},
+                    raw_key="WRONG-KEY-SPRAY")
+        s, b = ingest(p, "CLN111")
+        ingest_after = (s, b.get("result"))
+        s, _b = _req_totp(p, SUP, _totp(sup_secret, step(1)))
+        sup_after = s
+        # five post-key second-factor failures lock the human
+        wrong = "000000"
+        if _totp(det_secret, step(1)) == wrong:
+            wrong = "000001"
+        fails = []
+        for _i in range(5):
+            s, _b = req(p, "GET", "/stats", DET,
+                        headers={"X-Noctua-TOTP": wrong})
+            fails.append(s)
+        s, _b = _req_totp(p, DET, _totp(det_secret, step(1)))
+        locked_refusal = s
+        s, hb = req(p, "GET", "/health", JOB)
+        health_locked = bool(((hb.get("degraded") or {})
+                              .get("auth_fail") or {})
+                             .get("locked_accounts"))
+        health_ok = hb.get("ok")
+        # break-glass: provision.py unlock, honored live
+        r = A.script_run("provision.py", "unlock", DET,
+                         "--db", A.db)
+        unlock_rc = r.returncode
+        # the same step(1) code the locked attempt presented:
+        # refused at the lock, it was never consumed (t2's shape)
+        s, _b = _req_totp(p, DET, _totp(det_secret, step(1)))
+        after_unlock = s
+        kinds = audit_kinds(A)
+        ok = (det_active == 200 and sup_active == 200
+              and ingest_after == (201, "stored")
+              and sup_after == 200
+              and fails == [401] * 5 and locked_refusal == 401
+              and health_locked and health_ok is False
+              and unlock_rc == 0 and after_unlock == 200
+              and "ACCOUNT_LOCKED" in kinds
+              and "ACCOUNT_UNLOCKED" in kinds)
+        return ok, {"det_active": det_active, "sup_active": sup_active,
+                    "ingest_after_spray": ingest_after,
+                    "sup_after_spray": sup_after, "fails": fails,
+                    "locked_refusal": locked_refusal,
+                    "health_locked": health_locked,
+                    "health_ok": health_ok, "unlock_rc": unlock_rc,
+                    "after_unlock": after_unlock,
+                    "unlock_chained": "ACCOUNT_UNLOCKED" in kinds}
+    finally:
+        A.stop()
+
+
+def u1_replay_and_wrong_key(tree, side):
+    """The legitimate stale-code pattern: replays of a used code
+    count (they are post-key failures), but a wrong KEY never
+    does — four replays plus a wrong-key attempt must NOT lock
+    (four counted failures, threshold five)."""
+    A = Boot(tree, "u1b-%s" % side).start()
+    try:
+        p = A.port
+        secret, codes, r = _enroll(A, DET)
+        if not secret:
+            return False, {"enroll_rc": r.returncode}
+        code = _totp(secret, step())
+        s, _b = _req_totp(p, DET, code)
+        first = s
+        replays = []
+        for _i in range(4):
+            s, _b = _req_totp(p, DET, code)
+            replays.append(s)
+        s, _b = req(p, "GET", "/stats", DET, raw_key="WRONG-KEY")
+        wrong_key = s
+        s, _b = _req_totp(p, DET, _totp(secret, step(1)))
+        fresh = s
+        ok = (first == 200 and replays == [401] * 4
+              and wrong_key == 401 and fresh == 200)
+        return ok, {"first": first, "replays": replays,
+                    "wrong_key": wrong_key, "fresh_code": fresh}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# U2 — anchor fence exit
+# ------------------------------------------------------------------
+def _wait_unfenced(A, seconds=20):
+    deadline = time.time() + seconds
+    last = None
+    while time.time() < deadline:
+        s, _b = req(A.port, "GET", "/hits", DET)
+        last = s
+        if s == 200:
+            return True, last
+        time.sleep(0.5)
+    return False, last
+
+
+def u2_fence_exit(tree, side):
+    """A torn final checkpoint line fences the install; the
+    operator's repair (the line gone) clears the fence on the
+    evaluation cadence and chains ANCHOR_CLEARED. A malformed
+    MID-file line also recovers once repaired. A genuine
+    disagreement (a checkpoint from another install's chain)
+    still requires anchor-accept — auto-clear never accepts a
+    disagreeing root."""
+    A = Boot(tree, "u2-%s" % side).start()
+    cp_path = A.db + ".checkpoints.jsonl"
+    try:
+        p = A.port
+        ingest(p, "U2A111")
+        run_checkpoint(A)
+        s, _b = req(p, "GET", "/hits", DET)
+        clean = s
+        good = open(cp_path).read()
+        # torn final line (power cut mid-append)
+        with open(cp_path, "a") as f:
+            f.write('{"seq": 99, "root": "abc')
+        s, _b = req(p, "GET", "/hits", DET)
+        torn_seen = s
+        deadline = time.time() + 15
+        while time.time() < deadline and torn_seen != 503:
+            time.sleep(0.5)
+            s, _b = req(p, "GET", "/hits", DET)
+            torn_seen = s
+        # operator repair: the torn tail is removed
+        with open(cp_path, "w") as f:
+            f.write(good)
+        cleared, after_repair = _wait_unfenced(A)
+        kinds = audit_kinds(A)
+        cleared_kind = "ANCHOR_CLEARED" in kinds
+        # mid-file malformation: corrupt the first line, confirm
+        # the fence, repair, confirm the clear
+        lines = good.splitlines()
+        bad = "not json at all\n" + "\n".join(lines[1:]) + "\n"
+        with open(cp_path, "w") as f:
+            f.write(bad)
+        deadline = time.time() + 15
+        mid_seen = None
+        while time.time() < deadline:
+            s, _b = req(p, "GET", "/hits", DET)
+            mid_seen = s
+            if s == 503:
+                break
+            time.sleep(0.5)
+        with open(cp_path, "w") as f:
+            f.write(good)
+        cleared2, after_mid = _wait_unfenced(A)
+        ok = (clean == 200 and torn_seen == 503 and cleared
+              and cleared_kind and mid_seen == 503 and cleared2)
+        return ok, {"clean": clean, "torn_fences": torn_seen,
+                    "after_repair": after_repair,
+                    "anchor_cleared_chained": cleared_kind,
+                    "midfile_fences": mid_seen,
+                    "after_mid_repair": after_mid}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# U3 — sink divergence cost bound + resolution ceremony
+# ------------------------------------------------------------------
+def u3_sink_divergence(tree, side):
+    """A sink holding 100k fabricated lines disagrees with the
+    chain below its tail: every delivery pass used to rescan the
+    whole file (unbounded per-request cost). The measured cost
+    is eight ingest appends against that sink. The supervisor
+    ceremony then resolves the divergence BY NAME: the stranded
+    seqs chain in SINK_DIVERGENCE_ACCEPTED, the diverged file is
+    archived beside the live one, the chain backfills, and
+    /health's sink goes green."""
+    sinkdir = os.path.join(WORK, "u3-%s" % side)
+    shutil.rmtree(sinkdir, ignore_errors=True)
+    os.makedirs(sinkdir)
+    sink = os.path.join(sinkdir, "sink.log")
+    with open(sink, "w") as f:
+        for i in range(1, 100001):
+            f.write(json.dumps({"seq": i, "hash": "0" * 64,
+                                "kind": "FABRICATED"}) + "\n")
+    A = Boot(tree, "u3-%s" % side, dirpath=sinkdir,
+             env_extra={"NOCTUA_SENTINEL_SINK": sink}).start()
+    try:
+        p = A.port
+        t0 = time.time()
+        for i in range(8):
+            s, b = ingest(p, "U3X%03d" % i)
+            assert s == 201, (s, b)
+        append_s = time.time() - t0
+        s, hb = req(p, "GET", "/health", JOB)
+        sink_ok_before = hb.get("sentinel_sink_ok")
+        s, b = req(p, "POST", "/audit/sink-divergence-accept", SUP,
+                   {})
+        ceremony = s
+        stranded = b.get("stranded_seqs") or []
+        rows = A.sql("SELECT COUNT(*) FROM audit")
+        chain_n = rows[0][0]
+        sink_lines = sum(1 for _ln in open(sink))
+        archives = [fn for fn in os.listdir(sinkdir)
+                    if fn.startswith("sink.log.diverged-")]
+        s, hb = req(p, "GET", "/health", JOB)
+        sink_ok_after = hb.get("sentinel_sink_ok")
+        kinds = audit_kinds(A)
+        ok = (append_s < 2.5 and sink_ok_before is False
+              and ceremony == 200 and len(stranded) >= 1
+              and sink_lines == chain_n and len(archives) == 1
+              and sink_ok_after is True
+              and "SINK_DIVERGENCE_ACCEPTED" in kinds)
+        return ok, {"eight_appends_s": round(append_s, 2),
+                    "sink_ok_before": sink_ok_before,
+                    "ceremony": ceremony,
+                    "stranded_named": len(stranded),
+                    "sink_lines": sink_lines, "chain": chain_n,
+                    "archives": archives,
+                    "sink_ok_after": sink_ok_after}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# U4 — confidence domain + PENDING_SUPERSEDED
+# ------------------------------------------------------------------
+def u4_supersede(tree, side):
+    """NaN / infinite / string confidences are refused 400 and
+    store nothing. A strict out-rank redelivery moves the old
+    PENDING hit to PENDING_SUPERSEDED, linked to its successor,
+    still listed, and a supervisor can still dispose of it.
+    Equal rank still refuses the plate change (R9 contract)."""
+    A = Boot(tree, "u4-%s" % side).start()
+    try:
+        p = A.port
+        s, _b = req(p, "POST", "/hotlist", SUP,
+                    {"plate": "U4A111", "state": "AR",
+                     "category": "felony warrant",
+                     "case": "2027-1031"})
+        assert s == 201, s
+        before = A.sql("SELECT COUNT(*) FROM reads")[0][0]
+        bad = []
+        for conf in (float("nan"), float("inf"), "0.9", 1.5, -0.1):
+            s, _b = req(p, "POST", "/reads", ING,
+                        {"plate": "U4A111", "state": "AR",
+                         "cam": "CAM-01", "conf": conf})
+            bad.append(s)
+        after_bad = A.sql("SELECT COUNT(*) FROM reads")[0][0]
+        s, b = ingest(p, "U4A111", conf=0.90, event_id="evt-u4",
+                      event_type="end")
+        assert b.get("result") == "ALERT", b
+        hit1 = b["hit_id"]
+        s, b = ingest(p, "U4B222", conf=0.99, event_id="evt-u4",
+                      event_type="end")
+        hit2 = b.get("hit_id")
+        row = A.sql("SELECT status, superseded_by FROM hits "
+                    "WHERE id=?", (hit1,))[0]
+        s, b = req(p, "GET", "/hits", DET)
+        listed = {h["id"]: h["status"] for h in b.get("hits", [])}
+        s, b = req(p, "POST", "/verify", SUP,
+                   {"hit_id": hit1, "decision": "reject",
+                    "case": "2027-1031"})
+        dispose = s
+        row2 = A.sql("SELECT status FROM hits WHERE id=?",
+                     (hit1,))[0]
+        # equal rank still refuses (R9 regression guard)
+        s, b = ingest(p, "U4A111", conf=0.90, event_id="evt-u4b",
+                      event_type="end")
+        hit3 = b.get("hit_id")
+        s, b = ingest(p, "U4C333", conf=0.90, event_id="evt-u4b",
+                      event_type="end")
+        equal = b.get("result")
+        ok = (bad == [400] * 5 and after_bad == before
+              and row[0] == "PENDING_SUPERSEDED"
+              and row[1] == hit2
+              and listed.get(hit1) == "PENDING_SUPERSEDED"
+              and dispose == 200 and row2[0] == "REJECTED"
+              and equal == "plate_change_refused")
+        return ok, {"bad_conf_statuses": bad,
+                    "reads_stored_by_bad": after_bad - before,
+                    "old_status": row[0], "superseded_by": row[1],
+                    "successor": hit2,
+                    "listed_status": listed.get(hit1),
+                    "supervisor_dispose": dispose,
+                    "after_dispose": row2[0],
+                    "equal_rank": equal}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# U5 — DEMO_MODE refused on a provisioned install
+# ------------------------------------------------------------------
+def u5_demo_refusal(tree, side):
+    """A provisioned install booted with NOCTUA_DEMO_MODE=1
+    exits 3 and chains DEMO_MODE_REFUSED; an unprovisioned
+    install still boots in demo mode (the ceremony state)."""
+    A = Boot(tree, "u5-%s" % side).start()
+    secret, _c, r = _enroll(A, DET)
+    enrolled = bool(secret)
+    A.stop()
+    refused_rc = None
+    if enrolled:
+        B = Boot(tree, "u5-%s" % side, dirpath=A.dir,
+                 env_extra={"NOCTUA_DEMO_MODE": "1"})
+        try:
+            B.start()
+            refused_rc = 0  # booted: no refusal happened
+        except RuntimeError:
+            refused_rc = B.proc.poll() if B.proc else None
+        finally:
+            B.stop()
+    kinds = set()
+    try:
+        conn = sqlite3.connect(A.db)
+        kinds = set(r_[0] for r_ in conn.execute(
+            "SELECT kind FROM audit"))
+        conn.close()
+    except Exception:
+        pass
+    C = Boot(tree, "u5c-%s" % side,
+             env_extra={"NOCTUA_DEMO_MODE": "1"}).start()
+    try:
+        s, _b = req(C.port, "GET", "/ping")
+        demo_unprov = s
+    finally:
+        C.stop()
+    ok = (enrolled and refused_rc == 3
+          and "DEMO_MODE_REFUSED" in kinds and demo_unprov == 200)
+    return ok, {"enrolled": enrolled, "refused_rc": refused_rc,
+                "refusal_chained": "DEMO_MODE_REFUSED" in kinds,
+                "demo_unprovisioned_boots": demo_unprov}
+
+
+# ------------------------------------------------------------------
+# U6 — uniform hotlist submission + queue + registry order
+# ------------------------------------------------------------------
+def u6_hotlist_uniform(tree, side):
+    """A detective's adds of a protected plate, an unprotected
+    plate, and an unknown plate return byte-identical 202
+    submissions; a bogus list_name is a uniform 400 across all
+    three classes (registry validation precedes the suppression
+    check). A pending entry matches nothing and is invisible in
+    GET /hotlist; the supervisor queue approves (it then
+    matches), rejects, and refuses a protected entry (removed)."""
+    A = Boot(tree, "u6-%s" % side).start()
+    try:
+        p = A.port
+        s, _b = req(p, "POST", "/suppressions", SUP,
+                    {"plate": "U6P111", "state": "AR",
+                     "order_ref": "PO-U6 (DEMO)"})
+        assert s in (200, 201), s
+
+        def add(plate, **kw):
+            body = {"plate": plate, "state": "AR",
+                    "category": "felony warrant",
+                    "case": "2027-1031"}
+            body.update(kw)
+            return req(p, "POST", "/hotlist", DET, body)
+
+        got = {}
+        for label, plate in (("protected", "U6P111"),
+                             ("unprotected", "U6U222"),
+                             ("unknown", "U6X333")):
+            s, b = add(plate)
+            got[label] = (s, json.dumps(b, sort_keys=True))
+        uniform = len(set(got.values())) == 1 \
+            and got["protected"][0] == 202
+        bogus = {}
+        for label, plate in (("protected", "U6P111"),
+                             ("unprotected", "U6U222"),
+                             ("unknown", "U6X333")):
+            s, b = add(plate, list_name="No such list")
+            bogus[label] = (s, json.dumps(b, sort_keys=True))
+        bogus_uniform = len(set(bogus.values())) == 1 \
+            and bogus["protected"][0] == 400
+        s, b = req(p, "GET", "/hotlist", SUP)
+        listed = [e["plate"] for e in b.get("entries", [])]
+        s, b = ingest(p, "U6U222")
+        pending_match = b.get("result")
+        s, b = req(p, "GET", "/hotlist/pending", SUP)
+        queue = {e["plate"]: e["id"] for e in b.get("entries", [])}
+        s, _b = req(p, "POST", "/hotlist/approve", SUP,
+                    {"id": queue.get("U6U222")})
+        approve_u = s
+        s, b = ingest(p, "U6U222")
+        after_approve = b.get("result")
+        s, _b = req(p, "POST", "/hotlist/approve", SUP,
+                    {"id": queue.get("U6P111")})
+        approve_p = s
+        s, b = req(p, "GET", "/hotlist/pending", SUP)
+        queue_after = [e["plate"] for e in b.get("entries", [])]
+        s, b = add("U6R444")
+        s, b = req(p, "GET", "/hotlist/pending", SUP)
+        rid = {e["plate"]: e["id"]
+               for e in b.get("entries", [])}.get("U6R444")
+        s, _b = req(p, "POST", "/hotlist/reject", SUP, {"id": rid})
+        reject_r = s
+        s, b = ingest(p, "U6R444")
+        after_reject = b.get("result")
+        ok = (uniform and bogus_uniform
+              and "U6U222" not in listed
+              and pending_match == "stored"
+              and set(queue) >= {"U6P111", "U6U222"}
+              and approve_u == 200 and after_approve == "ALERT"
+              and approve_p == 403
+              and "U6P111" not in queue_after
+              and reject_r == 200 and after_reject == "stored")
+        return ok, {"classes": {k: v[0] for k, v in got.items()},
+                    "uniform_bodies": uniform,
+                    "bogus": {k: v[0] for k, v in bogus.items()},
+                    "bogus_uniform": bogus_uniform,
+                    "pending_listed": "U6U222" in listed,
+                    "pending_match": pending_match,
+                    "approve": approve_u, "after_approve":
+                    after_approve, "approve_protected": approve_p,
+                    "reject": reject_r, "after_reject": after_reject}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# U7 — pickup token + rotation divergence
+# ------------------------------------------------------------------
+def u7_pickup_token(tree, side):
+    """The re-enroll confirm (supervisor requests, AUDITOR
+    confirms — the two-key rule) mints a pickup token shown ONLY
+    in the confirm response. Pickup with the key alone fails;
+    with a wrong token fails; with the token succeeds and the
+    new key works. When the users file has diverged (the
+    target's entry removed), pickup fails 500 PICKUP_FAILED and
+    stays unconsumed — restore the entry and the same token
+    collects."""
+    A = Boot(tree, "u7-%s" % side).start()
+    try:
+        p = A.port
+        det_secret, det_codes, r = _enroll(A, DET)
+        sup_secret, _sc, r = _enroll(A, SUP, confirm_by=DET,
+                                     confirm_code=det_codes[0])
+        aud_secret, _ac, r = _enroll(A, AUD, confirm_by=DET,
+                                     confirm_code=det_codes[1])
+        pat_secret, _pc, r = _enroll(A, PAT, confirm_by=DET,
+                                     confirm_code=det_codes[2])
+        if not (det_secret and sup_secret and aud_secret
+                and pat_secret):
+            return False, {"enroll_rc": r.returncode}
+        secrets = {DET: det_secret, SUP: sup_secret,
+                   AUD: aud_secret, PAT: pat_secret}
+        _used = {}
+
+        def fresh(user):
+            # janus accepts counters within one step of the real
+            # clock; a tracker that runs ahead of the window must
+            # wait for the boundary rather than burn a code the
+            # server will refuse as out-of-window
+            while True:
+                cur = step()
+                use = _used.get(user, cur)
+                if use < cur:
+                    use = cur
+                if use <= cur + 1:
+                    break
+                time.sleep(1)
+            _used[user] = use + 1
+            return _totp(secrets[user], use)
+
+        # PAT never authenticates in this case (the supervisor
+        # requests its re-enrollment; the pickup is key+token) —
+        # it needs an enrollment, not an activation.
+        for user in (DET, SUP, AUD):
+            s, _b = _req_totp(p, user, fresh(user))
+            assert s == 200, (user, s)
+
+        def reenroll(target):
+            s, _b = req(p, "POST", "/auth/2fa/reenroll", SUP,
+                        {"user": target},
+                        headers={"X-Noctua-TOTP": fresh(SUP)})
+            req_s = s
+            s, b = req(p, "POST", "/auth/2fa/reenroll", AUD,
+                       {"user": target},
+                       headers={"X-Noctua-TOTP": fresh(AUD)})
+            return req_s, s, b.get("pickup_token")
+
+        req_s, confirm, token = reenroll(DET)
+
+        def pickup(user, tok):
+            headers = {"X-Noctua-User": user,
+                       "X-Noctua-Key": KEYS[user]}
+            if tok is not None:
+                headers["X-Noctua-Pickup-Token"] = tok
+            return req(p, "POST", "/auth/2fa/pickup", None,
+                       {"user": user}, headers=headers)
+
+        s, _b = pickup(DET, None)
+        key_only = s
+        s, _b = pickup(DET, "WRONGTOKEN")
+        wrong_token = s
+        s, b = pickup(DET, token or "")
+        with_token = s
+        new_secret = b.get("totp_secret")
+        new_key = b.get("api_key")
+        s, _b = req(p, "GET", "/stats", DET, raw_key=new_key,
+                    headers={"X-Noctua-TOTP":
+                             _totp(new_secret, step())}
+                    ) if new_secret and new_key else (None, None)
+        new_key_works = s
+        # rotation divergence: PAT re-enrolls, then PAT's
+        # users-file entry vanishes before pickup
+        req2, confirm2, token2 = reenroll(PAT)
+        users_path = A.env["NOCTUA_USERS"]
+        saved = open(users_path).read()
+        entries = [e for e in json.loads(saved)
+                   if e["user"] != PAT]
+        with open(users_path, "w") as f:
+            json.dump(entries, f)
+        s, _b = pickup(PAT, token2 or "")
+        diverged_pickup = s
+        kinds = audit_kinds(A)
+        with open(users_path, "w") as f:
+            f.write(saved)
+        s, _b = pickup(PAT, token2 or "")
+        retry_pickup = s
+        ok = (req_s == 200 and confirm == 200 and bool(token)
+              and key_only == 401 and wrong_token == 401
+              and with_token == 200 and new_key_works == 200
+              and confirm2 == 200 and bool(token2)
+              and diverged_pickup == 500
+              and "PICKUP_FAILED" in kinds
+              and retry_pickup == 200)
+        return ok, {"request": req_s, "confirm": confirm,
+                    "request2": req2, "confirm2": confirm2,
+                    "token2_minted": bool(token2),
+                    "token_minted": bool(token),
+                    "key_only": key_only, "wrong_token": wrong_token,
+                    "with_token": with_token,
+                    "new_key_works": new_key_works,
+                    "diverged_pickup": diverged_pickup,
+                    "pickup_failed_chained":
+                        "PICKUP_FAILED" in kinds,
+                    "retry_after_reconcile": retry_pickup}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# U8 — sink-status fault injection
+# ------------------------------------------------------------------
+_U8_CODE = r"""
+import json, os, sys
+sys.path.insert(0, os.environ["PYTHONPATH"])
+import sentinel
+db, sink = os.environ["NOCTUA_DB"], os.environ["NOCTUA_SENTINEL_SINK"]
+ch = sentinel.Chain(db)
+ch.append("TEST", {"n": 1})
+ch.append("TEST", {"n": 2})
+spool = sink + ".spool"
+if os.path.isfile(spool):
+    os.remove(spool)
+os.makedirs(spool)  # a DIRECTORY where the spool file belongs
+out = {}
+try:
+    st = ch.sink_status()
+    out = {"raised": False, "ok": st.get("ok"),
+           "unknown": st.get("unknown"),
+           "error_named": "IsADirectoryError"
+           in str(st.get("error") or "")}
+except Exception as exc:
+    out = {"raised": True, "err": type(exc).__name__}
+print(json.dumps(out))
+"""
+
+
+def u8_sink_status_fault(tree, side):
+    """With a directory at <sink>.spool, sink_status() returns a
+    named not-ok unknown state instead of raising (1.2.5 raised
+    IsADirectoryError out of the status call itself)."""
+    rc, out, _raw, err = run_unit(tree, _U8_CODE)
+    ok = (rc == 0 and out and out.get("raised") is False
+          and out.get("ok") is False and out.get("unknown") is True
+          and out.get("error_named") is True)
+    return ok, {"unit": out, "rc": rc, "stderr": err[-200:]}
+
+
+# ------------------------------------------------------------------
+# U9 — populated-arrival lockdown
+# ------------------------------------------------------------------
+def u9_populated_arrival(tree, side):
+    """A database BUILT BY 1.2.5 (populated, never provisioned,
+    no born-empty marker — the restore/copy arrival shape) is
+    locked down by 1.2.6: ingest refuses 503, human key-only
+    auth refuses, and /health names the unprovisioned_locked
+    state. 1.2.5 serving its own database is the control."""
+    d = os.path.join(WORK, "u9-shared-%s" % side)
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    src = Boot(BASE_TREE, "u9-src-%s" % side, dirpath=d).start()
+    s, b = ingest(src.port, "U9A111")
+    built = s
+    src.stop()
+    A = Boot(tree, "u9-eval-%s" % side, dirpath=d).start()
+    try:
+        p = A.port
+        s, b = ingest(p, "U9B222")
+        ingest_status = s
+        s, _b = req(p, "GET", "/stats", DET)
+        human_status = s
+        s, hb = req(p, "GET", "/health", JOB)
+        state = (hb.get("totp") or {}).get("state")
+        locked_down = (ingest_status == 503 and human_status == 401
+                       and state == "unprovisioned_locked")
+        return locked_down, {"built_with_125": built,
+                             "ingest": ingest_status,
+                             "human_key_only": human_status,
+                             "totp_state": state}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# U10 — escrow placement
+# ------------------------------------------------------------------
+def u10_escrow_placement(tree, side):
+    """Default backup: the key escrow lands OUTSIDE the backup
+    tree (a sibling), and the set itself carries no key files.
+    An explicit NOCTUA_KEY_ESCROW_DIR INSIDE the backup tree is
+    refused before anything is written: no new set, no escrow
+    directory, nonzero exit."""
+    d = os.path.join(WORK, "u10-%s" % side)
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    db = os.path.join(d, "janus.db")
+    sent = T.load_sentinel(tree)
+    env = dict(os.environ)
+    env.update({"NOCTUA_DB": db, "NOCTUA_AUDIT_KEY": "u10-key",
+                "NOCTUA_SENTINEL_SINK": os.path.join(d, "sink.log")})
+    old = dict(os.environ)
+    os.environ.update(env)
+    try:
+        ch = sent.Chain(db)
+        for i in range(3):
+            ch.append("TEST", {"n": i})
+    finally:
+        os.environ.clear()
+        os.environ.update(old)
+    for name in ("users.json", "cases.json", "cameras.json"):
+        with open(os.path.join(d, name), "w") as f:
+            json.dump({}, f)
+    backups = os.path.join(d, "backups")
+    benv = dict(os.environ)
+    benv.update({"NOCTUA_DB": db, "NOCTUA_AUDIT_KEY": "u10-key",
+                 "NOCTUA_USERS": os.path.join(d, "users.json"),
+                 "NOCTUA_CASES": os.path.join(d, "cases.json"),
+                 "NOCTUA_CAMERAS": os.path.join(d, "cameras.json"),
+                 "NOCTUA_BACKUP_DIR": backups,
+                 "NOCTUA_SENTINEL_SINK": os.path.join(d, "sink.log")})
+
+    def run_backup(extra=None):
+        e = dict(benv)
+        if extra:
+            e.update(extra)
+        return subprocess.run(
+            [sys.executable, os.path.join(tree, "scripts",
+                                          "backup.py")],
+            env=e, capture_output=True, text=True, timeout=300)
+
+    def sets():
+        if not os.path.isdir(backups):
+            return []
+        return sorted(x for x in os.listdir(backups)
+                      if x.startswith("backup-"))
+
+    r1 = run_backup()
+    sets1 = sets()
+    escrow_dirs = []
+    for root, dirs, _files in os.walk(d):
+        for x in dirs:
+            if x.startswith("key-escrow-"):
+                escrow_dirs.append(os.path.join(root, x))
+    escrow_outside = bool(escrow_dirs) and all(
+        not e.startswith(backups) for e in escrow_dirs)
+    set_files = []
+    if sets1:
+        for root, _dirs, files in os.walk(
+                os.path.join(backups, sets1[0])):
+            set_files += files
+    keys_in_set = [f for f in set_files
+                   if f in (".audit_key", "signing_key.pem",
+                            "signing_pub.pem")]
+    time.sleep(1.2)
+    r2 = run_backup({"NOCTUA_KEY_ESCROW_DIR":
+                     os.path.join(backups, "inside-escrow")})
+    refused = (r2.returncode != 0 and sets() == sets1
+               and not os.path.exists(
+                   os.path.join(backups, "inside-escrow")))
+    ok = (r1.returncode == 0 and len(sets1) == 1 and escrow_outside
+          and not keys_in_set and refused)
+    return ok, {"default_rc": r1.returncode, "sets": sets1,
+                "escrow_dirs": [os.path.relpath(e, d)
+                                for e in escrow_dirs],
+                "keys_in_set": keys_in_set,
+                "inside_rc": r2.returncode,
+                "inside_refused_cleanly": refused,
+                "inside_tail": (r2.stdout + r2.stderr)[-200:]}
+
+
+# ------------------------------------------------------------------
+# U11 — smalls
+# ------------------------------------------------------------------
+_U11_UNIT = r"""
+import json, os, sys
+sys.path.insert(0, os.environ["PYTHONPATH"])
+import sentinel
+out = {}
+pem = "-----BEGIN PUBLIC KEY-----\n-----END PUBLIC KEY-----\n"
+out["fingerprint_empty_pem"] = sentinel.pubkey_fingerprint(pem)
+out["cyrillic_ze"] = sentinel._contains_plate("BYX12\u0417")
+out["arabic_indic"] = sentinel._contains_plate(
+    "ABC\u0661\u0662\u0663")
+secret = "JBSWY3DPEHPK3PXPP7R5TXYZ22"
+out["totp_unpadded_matches"] = (
+    sentinel.totp_code(secret, 12345)
+    == sentinel.totp_code(secret + "=" * (-len(secret) % 8),
+                          12345))
+print(json.dumps(out))
+"""
+
+
+def u11_sentinel_units(tree, side):
+    """Empty/body-less PEM fingerprints to None (never the hash
+    of nothing); the scrubber folds Cyrillic З and Arabic-Indic
+    digits; sentinel.totp_code tolerates unpadded base32."""
+    rc, out, _raw, err = run_unit(tree, _U11_UNIT)
+    ok = (rc == 0 and out
+          and out.get("fingerprint_empty_pem") is None
+          and out.get("cyrillic_ze") is True
+          and out.get("arabic_indic") is True
+          and out.get("totp_unpadded_matches") is True)
+    return ok, {"unit": out, "rc": rc, "stderr": err[-200:]}
+
+
+def u11_version_sweep(tree, side):
+    """Every user-facing version surface names 1.2.6 (1.2.5's
+    COMPACT.md still said 1.2.4 — the sweep is the case)."""
+    found = {}
+    janus_src = open(os.path.join(tree, "janus.py")).read()
+    m = _re_search(r'VERSION = "([0-9.]+)"', janus_src)
+    found["janus_VERSION"] = m
+    sent_src = open(os.path.join(tree, "sentinel.py")).read()
+    found["sentinel_REGISTRY"] = _re_search(
+        r'REGISTRY_VERSION = "([0-9.]+)"', sent_src)
+    found["sentinel_docstring"] = "NOCTUA 1.2.6" in sent_src[:3000]
+    compact = open(os.path.join(tree, "COMPACT.md")).read()
+    found["compact_label"] = "as implemented in NOCTUA 1.2.6" \
+        in compact
+    backup_src = open(os.path.join(tree, "scripts",
+                                   "backup.py")).read()
+    found["backup_manifest"] = '"noctua": "1.2.6"' in backup_src
+    ok = (found["janus_VERSION"] == "1.2.6"
+          and found["sentinel_REGISTRY"] == "1.2.6"
+          and found["sentinel_docstring"] and found["compact_label"]
+          and found["backup_manifest"])
+    return ok, found
+
+
+def _re_search(pat, text):
+    import re as _re
+    m = _re.search(pat, text)
+    return m.group(1) if m else None
+
+
+_U11_JANUS_UNIT = r"""
+import json, os, sys
+d = os.path.dirname(os.environ["NOCTUA_DB"])
+users = [{"user": "det.okafor", "role": "detective",
+          "key_sha256": "x" * 64}]
+for name, obj in (("users.json", users),
+                  ("cases.json", {"open_cases": ["2027-1001"]}),
+                  ("cameras.json", {"cameras": ["CAM-01"]})):
+    with open(os.path.join(d, name), "w") as f:
+        json.dump(obj, f)
+os.environ.update({
+    "NOCTUA_USERS": os.path.join(d, "users.json"),
+    "NOCTUA_CASES": os.path.join(d, "cases.json"),
+    "NOCTUA_CAMERAS": os.path.join(d, "cameras.json"),
+    "NOCTUA_PORT": "0"})
+sys.path.insert(0, os.environ["PYTHONPATH"])
+import janus
+out = {}
+seen = []
+real_replace = os.replace
+def spy_replace(src, dst):
+    seen.append(src)
+    return real_replace(src, dst)
+os.replace = spy_replace
+try:
+    data = janus._totp_load()
+    data["det.okafor"] = {"secret": "JBSWY3DPEHPK3PXP"}
+    janus._totp_save(data)
+    janus._totp_save(data)
+finally:
+    os.replace = real_replace
+out["save_tmp_paths"] = seen
+out["temps_unique"] = len(seen) == 2 and seen[0] != seen[1]
+def boom(*a, **k):
+    raise RuntimeError("injected order_covers failure")
+janus._order_covers = boom
+out["sql_order_covers_on_error"] = janus._sql_order_covers(
+    "ref", "U11X", "AR", "U11X")
+print(json.dumps(out))
+"""
+
+
+def u11_janus_units(tree, side):
+    """_totp_save writes through a UNIQUE temp per save (two
+    saves, two temp paths — 1.2.5 used one fixed path);
+    _sql_order_covers fails CLOSED (returns 1) when its check
+    raises (1.2.5 returned 0 — fail-open)."""
+    rc, out, _raw, err = run_unit(tree, _U11_JANUS_UNIT)
+    ok = (rc == 0 and out and out.get("temps_unique") is True
+          and out.get("sql_order_covers_on_error") == 1)
+    return ok, {"unit": out, "rc": rc, "stderr": err[-300:]}
+
+
+def u11_tier3_pref(tree, side):
+    """A Tier 3 request whose stored fragment has become a
+    pref:/invalid fragment expires at approve instead of
+    executing with zero results (1.2.5 executed it)."""
+    A = Boot(tree, "u11t-%s" % side).start()
+    try:
+        p = A.port
+        s, b = req(p, "POST", "/tier3/request", PAT,
+                   {"plate_fragment": "U11X", "case_id": "2027-1031",
+                    "why": "u11 case", "basis_type": "warrant",
+                    "auth_basis": "Warrant W-U11 (DEMO)"})
+        rid = b.get("request_id")
+        if not rid:
+            return False, {"create": (s, b)}
+        A.sql("UPDATE tier3_requests SET plate_fragment=? "
+              "WHERE id=?", ("pref:U11X", rid))
+        s, b = req(p, "POST", "/tier3/approve", SUP,
+                   {"request_id": rid})
+        approve = s
+        row = A.sql("SELECT status FROM tier3_requests WHERE id=?",
+                    (rid,))
+        status = row[0][0] if row else None
+        ok = approve == 409 and status == "EXPIRED"
+        return ok, {"approve": approve, "status": status}
+    finally:
+        A.stop()
+
+
+def u11_disabled_pickup(tree, side):
+    """A disabled account collects no pickup and cannot be the
+    target of a re-enroll request (mirrors auth()'s test;
+    1.2.5's ceremony paths never checked the disabled flag)."""
+    A = Boot(tree, "u11d-%s" % side).start()
+    det_secret, det_codes, r = _enroll(A, DET)
+    sup_secret, _sc, r = _enroll(A, SUP, confirm_by=DET,
+                                 confirm_code=det_codes[0])
+    aud_secret, _ac, r = _enroll(A, AUD, confirm_by=DET,
+                                 confirm_code=det_codes[1])
+    if not (det_secret and sup_secret and aud_secret):
+        return False, {"enroll_rc": r.returncode}
+    p = A.port
+    s, _b = req(p, "POST", "/auth/2fa/reenroll", SUP, {"user": DET},
+                headers={"X-Noctua-TOTP": _totp(sup_secret, step())})
+    s, b = req(p, "POST", "/auth/2fa/reenroll", AUD, {"user": DET},
+               headers={"X-Noctua-TOTP": _totp(aud_secret, step())})
+    token = b.get("pickup_token")
+    A.stop()
+    users_path = A.env["NOCTUA_USERS"]
+    entries = json.loads(open(users_path).read())
+    for e in entries:
+        if e["user"] == DET:
+            e["disabled"] = True
+    with open(users_path, "w") as f:
+        json.dump(entries, f)
+    B = Boot(tree, "u11d-%s" % side, dirpath=A.dir).start()
+    try:
+        p = B.port
+        s, _b = req(p, "POST", "/auth/2fa/pickup", None,
+                    {"user": DET},
+                    headers={"X-Noctua-User": DET,
+                             "X-Noctua-Key": KEYS[DET],
+                             "X-Noctua-Pickup-Token": token or ""})
+        pickup = s
+        s, _b = req(p, "POST", "/auth/2fa/reenroll", SUP,
+                    {"user": DET},
+                    headers={"X-Noctua-TOTP":
+                             _totp(sup_secret, step(1))})
+        reenroll = s
+        ok = pickup == 401 and reenroll == 400
+        return ok, {"pickup_disabled": pickup,
+                    "reenroll_target_disabled": reenroll}
+    finally:
+        B.stop()
+
+
+def u11_alert_check_names(tree, side):
+    """alert_check names an INCOMPLETE migration as a reason
+    (1.2.5 reported only the generic not-ok). A stub /health
+    serves ok:false with migration_status.state incomplete and
+    nothing else wrong."""
+    import http.server
+    import threading
+    health = {"ok": False, "degraded": {},
+              "migration_status": {"state": "incomplete",
+                                   "detail": "defects remain"}}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = (b'{"ok": true}' if self.path == "/ping"
+                    else json.dumps(health).encode())
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    port = srv.server_address[1]
+    th = threading.Thread(target=srv.serve_forever, daemon=True)
+    th.start()
+    try:
+        env = dict(os.environ)
+        env.update({"NOCTUA_JANUS_URL": "http://127.0.0.1:%d" % port,
+                    "NOCTUA_JOBS_USER": JOB,
+                    "NOCTUA_JOBS_KEY": KEYS[JOB]})
+        r = subprocess.run(
+            [sys.executable, os.path.join(tree, "scripts",
+                                          "alert_check.py")],
+            env=env, capture_output=True, text=True, timeout=120)
+        out = r.stdout + r.stderr
+        ok = r.returncode == 1 and "INCOMPLETE" in out
+        return ok, {"rc": r.returncode,
+                    "names_incomplete": "INCOMPLETE" in out,
+                    "tail": out[-200:]}
+    finally:
+        srv.shutdown()
+
+
+# ------------------------------------------------------------------
+# U12 — sink tail reconciliation
+# ------------------------------------------------------------------
+_U12_CODE = r"""
+import json, os, sys
+sys.path.insert(0, os.environ["PYTHONPATH"])
+import sentinel
+out = {}
+db, sink = os.environ["NOCTUA_DB"], os.environ["NOCTUA_SENTINEL_SINK"]
+ch = sentinel.Chain(db)
+for i in range(5):
+    ch.append("TEST", {"n": i})
+with open(sink, "a") as f:
+    f.write('{"seq": 6, "hash": "abc')  # torn final line
+ch.append("TEST", {"n": 5})
+seqs = []
+for line in open(sink):
+    line = line.strip()
+    if line:
+        seqs.append(json.loads(line)["seq"])
+out["torn"] = {"seqs": seqs, "no_dupes": len(seqs) == len(set(seqs)),
+               "complete": seqs == [1, 2, 3, 4, 5, 6],
+               "ok": ch.sink_status()["ok"]}
+# truncated sink: a second chain whose mirror loses its tail
+db2 = db + ".two"
+sink2 = sink + ".two"
+os.environ["NOCTUA_SENTINEL_SINK"] = sink2
+ch2 = sentinel.Chain(db2)
+for i in range(5):
+    ch2.append("TEST", {"n": i})
+lines = open(sink2).read().splitlines()
+with open(sink2, "w") as f:
+    f.write("\n".join(lines[:2]) + "\n")
+ch2.append("TEST", {"n": 5})
+st = ch2.sink_status()
+out["truncated"] = {"ok": st["ok"],
+                    "diverged": st.get("diverged_seqs"),
+                    "pending": st.get("pending")}
+print(json.dumps(out))
+"""
+
+
+def u12_sink_tail(tree, side):
+    """Torn tail: truncated to the last valid line, the next
+    entry appends cleanly — no duplicates, no whole-chain
+    redelivery (1.2.5 redelivered everything into the file).
+    Truncated sink: a NAMED divergence — status not ok, the
+    missing seqs named, the obligation preserved (1.2.5 matched
+    no branch and stayed green)."""
+    rc, out, _raw, err = run_unit(tree, _U12_CODE)
+    torn = (out or {}).get("torn") or {}
+    trunc = (out or {}).get("truncated") or {}
+    ok = (rc == 0 and torn.get("complete") is True
+          and torn.get("no_dupes") is True
+          and torn.get("ok") is True
+          and trunc.get("ok") is False
+          and bool(trunc.get("diverged")))
+    return ok, {"unit": out, "rc": rc, "stderr": err[-300:]}
+
+
+# ------------------------------------------------------------------
+# U13 — restore key custody + R-A closure
+# ------------------------------------------------------------------
+def _key_bytes(db_path):
+    out = {}
+    for suffix in (".audit_key", ".signing_key.pem",
+                   ".signing_pub.pem"):
+        path = db_path + suffix
+        out[suffix] = open(path, "rb").read() \
+            if os.path.exists(path) else None
+    return out
+
+
+def _latest_set(backups_root):
+    sets = sorted(x for x in os.listdir(backups_root)
+                  if x.startswith("backup-"))
+    return os.path.join(backups_root, sets[-1]) if sets else None
+
+
+def u13_restore_custody(tree, side):
+    """Rollback shape: an instance publishes a checkpoint, takes
+    an escrow-split backup (the set carries NO keys), grows,
+    publishes again — then restores its own earlier set. The
+    host's live keys stay byte-identical, the signing identity
+    is unchanged, and the restored chain's checkpoint still
+    verifies: no anchor fence (1.2.5 moved the keys aside for a
+    set that carried none, stranding/re-minting the identity)."""
+    B = Boot(tree, "u13b-%s" % side).start()
+    ingest(B.port, "U13B22")
+    run_checkpoint(B)
+    B.stop()
+    backups = os.path.join(B.dir, "backups")
+    r = B.script_run("backup.py",
+                     env_extra={"NOCTUA_BACKUP_DIR": backups})
+    if r.returncode != 0:
+        return False, {"backup_rc": r.returncode,
+                       "tail": (r.stdout + r.stderr)[-300:]}
+    set_dir = _latest_set(backups)
+    before = _key_bytes(B.db)
+    B2 = Boot(tree, "u13b-%s" % side, dirpath=B.dir).start()
+    ingest(B2.port, "U13C33")
+    B2.stop()
+    r = B.script_run("restore.py", set_dir, "--db", B.db,
+                     "--pubkey", B.db + ".signing_pub.pem")
+    restore_rc = r.returncode
+    restore_out = r.stdout + r.stderr
+    after = _key_bytes(B.db)
+    keys_intact = (all(after[k] == before[k] for k in before)
+                   and before[".signing_key.pem"] is not None
+                   and before[".signing_pub.pem"] is not None)
+    C = Boot(tree, "u13b-%s" % side, dirpath=B.dir).start()
+    try:
+        s, _b = req(C.port, "GET", "/hits", DET)
+        hits_after = s
+        s, hb = req(C.port, "GET", "/health", JOB)
+        anchor_ok = hb.get("anchor_mismatch") is False
+    finally:
+        C.stop()
+    ok = (restore_rc == 0 and "restored OK" in restore_out
+          and keys_intact and hits_after == 200
+          and anchor_ok is not False)
+    return ok, {"restore_rc": restore_rc, "keys_intact": keys_intact,
+                "hits_after_restore": hits_after,
+                "anchor_ok": anchor_ok,
+                "restore_tail": restore_out[-200:]}
+
+
+def u13_ra_closure(tree, side):
+    """Provisioned OUTGOING install, unprovisioned INCOMING set:
+    the incoming humans are treated as provisioned — key-only
+    auth refuses with must_reenroll (1.2.5 judged provisioned-ness
+    by the incoming database alone and let them straight in)."""
+    # outgoing: provisioned, live in dir L
+    L = Boot(tree, "u13L-%s" % side).start()
+    secret, codes, r = _enroll(L, DET)
+    if not secret:
+        return False, {"enroll_rc": r.returncode}
+    s, _b = _req_totp(L.port, DET, _totp(secret, step()))
+    L.stop()
+    # incoming: an unprovisioned install's backup set
+    I = Boot(tree, "u13I-%s" % side).start()
+    ingest(I.port, "U13I33")
+    I.stop()
+    # the store does not travel with backup sets (S11) and is
+    # absent on this restore host — the outgoing install's
+    # provisioned state exists ONLY in its database marker
+    store = L.db + ".totp.json"
+    if os.path.exists(store):
+        os.remove(store)
+    i_backups = os.path.join(I.dir, "backups")
+    r = I.script_run("backup.py",
+                     env_extra={"NOCTUA_BACKUP_DIR": i_backups})
+    if r.returncode != 0:
+        return False, {"backup_rc": r.returncode}
+    r = L.script_run("restore.py", _latest_set(i_backups),
+                     "--db", L.db,
+                     "--pubkey", I.db + ".signing_pub.pem")
+    restore_rc = r.returncode
+    M = Boot(tree, "u13L-%s" % side, dirpath=L.dir).start()
+    try:
+        s, b = req(M.port, "GET", "/stats", DET)
+        key_only = s
+        s, hb = req(M.port, "GET", "/health", JOB)
+        must = (hb.get("totp") or {}).get("must_reenroll")
+        ok = (restore_rc == 0 and key_only == 401
+              and bool(must))
+        return ok, {"restore_rc": restore_rc, "key_only": key_only,
+                    "must_reenroll": must}
+    finally:
+        M.stop()
+
+
+# ------------------------------------------------------------------
+# U14 — anchor evaluation cost
+# ------------------------------------------------------------------
+_U14_CODE = r"""
+import importlib.util, json, os, sys
+d = os.path.dirname(os.environ["NOCTUA_DB"])
+users = [{"user": "jobs.local", "role": "jobs", "key_sha256": "x"}]
+for name, obj in (("users.json", users),
+                  ("cases.json", {"open_cases": []}),
+                  ("cameras.json", {"cameras": []})):
+    with open(os.path.join(d, name), "w") as f:
+        json.dump(obj, f)
+os.environ.update({
+    "NOCTUA_USERS": os.path.join(d, "users.json"),
+    "NOCTUA_CASES": os.path.join(d, "cases.json"),
+    "NOCTUA_CAMERAS": os.path.join(d, "cameras.json"),
+    "NOCTUA_PORT": "0"})
+tree = os.environ["PYTHONPATH"]
+sys.path.insert(0, tree)
+spec = importlib.util.spec_from_file_location(
+    "sentinel_u14", os.path.join(tree, "sentinel.py"))
+sentinel = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(sentinel)
+ch = sentinel.Chain(os.environ["NOCTUA_DB"])
+for i in range(8):
+    ch.append("TEST", {"n": i})
+# a real first boot pins the audit key's fingerprint in meta;
+# record the same pin so janus does not (correctly) treat this
+# fabricated chain as an unpinned-key-over-existing-chain lock
+import hashlib, sqlite3
+_pin = hashlib.sha256(
+    os.environ["NOCTUA_AUDIT_KEY"].encode()).hexdigest()
+_conn = sqlite3.connect(os.environ["NOCTUA_DB"])
+_conn.execute("CREATE TABLE IF NOT EXISTS meta("
+              "key TEXT PRIMARY KEY, value TEXT)")
+_conn.execute("INSERT OR REPLACE INTO meta(key, value) "
+              "VALUES('audit_key_fingerprint', ?)", (_pin,))
+_conn.commit()
+_conn.close()
+# fabricate K=200 checkpoints over the chain's real roots, signed
+# by the install's own key (roots repeat: content differs by seq)
+priv, pub = sentinel.ensure_signing_key(os.environ["NOCTUA_DB"])
+root = ch.root()
+pub_pem = open(pub).read()
+cp_path = os.environ["NOCTUA_DB"] + ".checkpoints.jsonl"
+with open(cp_path, "w") as f:
+    for i in range(200):
+        e = {"date": "2027-01-01",
+             "ts": "2027-01-01T00:%02d:%02dZ" % (i // 60, i % 60),
+             "root": root, "entries": 8, "agency": "Cabot PD",
+             "sig_alg": "ed25519"}
+        e["sig"] = sentinel.sign_bytes(
+            priv, sentinel.checkpoint_signed_bytes(e))
+        e["pubkey"] = pub_pem
+        f.write(json.dumps(e) + "\n")
+import janus
+count = [0]
+real = sentinel.verify_bytes
+def counting(pub_, data, sig):
+    count[0] += 1
+    return real(pub_, data, sig)
+janus.sentinel.verify_bytes = counting
+if hasattr(janus, "_SIG_MEMO"):
+    janus._SIG_MEMO.clear()
+count[0] = 0
+janus._anchor_evaluate()
+first = count[0]
+count[0] = 0
+janus._anchor_evaluate()
+second = count[0]
+print(json.dumps({"first_window_verifies": first,
+                  "second_window_verifies": second}))
+"""
+
+
+def u14_anchor_cost(tree, side):
+    """With K=200 checkpoints published, the FIRST evaluation
+    verifies them; a SECOND evaluation over unchanged content
+    verifies ZERO (memoized per checkpoint content) — the
+    per-window under-lock cost is bounded by new checkpoints,
+    not by the file's total length (1.2.5 re-verified all 200)."""
+    rc, out, _raw, err = run_unit(tree, _U14_CODE)
+    ok = (rc == 0 and out
+          and out.get("first_window_verifies", 0) >= 200
+          and out.get("second_window_verifies") == 0)
+    return ok, {"unit": out, "rc": rc, "stderr": err[-300:]}
+
+
+# ------------------------------------------------------------------
+# runner
+# ------------------------------------------------------------------
+CASES_TABLE = [
+    ("u1_lockout_scope", u1_lockout_scope),
+    ("u1_replay_and_wrong_key", u1_replay_and_wrong_key),
+    ("u2_fence_exit", u2_fence_exit),
+    ("u3_sink_divergence", u3_sink_divergence),
+    ("u4_supersede", u4_supersede),
+    ("u5_demo_refusal", u5_demo_refusal),
+    ("u6_hotlist_uniform", u6_hotlist_uniform),
+    ("u7_pickup_token", u7_pickup_token),
+    ("u8_sink_status_fault", u8_sink_status_fault),
+    ("u9_populated_arrival", u9_populated_arrival),
+    ("u10_escrow_placement", u10_escrow_placement),
+    ("u11_sentinel_units", u11_sentinel_units),
+    ("u11_version_sweep", u11_version_sweep),
+    ("u11_janus_units", u11_janus_units),
+    ("u11_tier3_pref", u11_tier3_pref),
+    ("u11_disabled_pickup", u11_disabled_pickup),
+    ("u11_alert_check_names", u11_alert_check_names),
+    ("u12_sink_tail", u12_sink_tail),
+    ("u13_restore_custody", u13_restore_custody),
+    ("u13_ra_closure", u13_ra_closure),
+    ("u14_anchor_cost", u14_anchor_cost),
+]
+
+
+def run_case(name, fn):
+    try:
+        test_ok, test_detail = fn(TEST_TREE, "test")
+    except Exception as exc:
+        test_ok, test_detail = False, {"exception": repr(exc)[:400]}
+    try:
+        base_ok, base_detail = fn(BASE_TREE, "base")
+    except Exception as exc:
+        base_ok, base_detail = False, {"exception": repr(exc)[:400]}
+    ok = test_ok and not base_ok
+    report(name, ok, {"baseline_125": {"ok": base_ok,
+                                       "detail": base_detail},
+                      "test_126": {"ok": test_ok,
+                                   "detail": test_detail},
+                      "discriminating": not base_ok})
+
+
+def main():
+    print("U battery: test=%s baseline=%s" % (TEST_TREE, BASE_TREE))
+    for name, fn in CASES_TABLE:
+        if ONLY and ONLY not in name:
+            continue
+        run_case(name, fn)
+    failed = [n for n, ok in RESULTS if not ok]
+    print("=" * 60)
+    print("U battery: %d/%d cases pass" % (
+        len(RESULTS) - len(failed), len(RESULTS)))
+    if failed:
+        print("FAILED: %s" % ", ".join(failed))
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,1560 @@
+# .orig-126 — the pre-1.2.7 R battery, preserved under R-F
+# before the 1.2.7 adaptation. The only change: R15's version
+# literals 1.2.6 -> 1.2.7 (three spots in r15_honesty). The
+# invariant is unchanged — /health's version, /health's
+# registry_version, and sentinel.REGISTRY_VERSION all equal
+# the SHIPPING build's version, consistently; the literal
+# follows the shipping build, as in the U battery's u11 sweep
+# and the builders' registry checks.
+#!/usr/bin/env python3
+# VESPER · the evening watch
+"""NOCTUA 1.2.3 discriminating battery — one case per R item.
+
+    python3 tests/run_r123_cases.py <tree-under-test> <baseline>
+
+Every case runs the SAME scenario against both trees. A case
+passes (in the battery's sense) iff the scenario FAILS on the
+baseline (janus122 — the defect is present) and PASSES on the tree
+under test (janus123 — the defect is gone), except R14, which is a
+MEASUREMENT: it reports the load numbers for both trees and passes
+iff the tree under test holds completeness at the measured load.
+A case that observes zero of the thing it tests on the fixed tree
+fails — vacuity is a failure, not a pass (round 6 standard).
+
+Cases print:  CASE <name> PASS|FAIL :: <json detail>
+Exit 0 iff every case passes. Stdlib only. All state lives under
+<tree-under-test>/scratch/r-battery/ (TMPDIR-driven WORK).
+"""
+import hashlib
+import importlib.util
+import json
+import os
+import shutil
+import sqlite3
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta, timezone
+
+TEST_TREE = os.path.abspath(sys.argv[1])
+BASE_TREE = os.path.abspath(sys.argv[2])
+ONLY = sys.argv[3] if len(sys.argv) > 3 else None
+WORK = os.path.join(TEST_TREE, "scratch", "r-battery")
+os.makedirs(WORK, exist_ok=True)
+FIX11 = os.path.join(TEST_TREE, "tests", "fixtures", "janus11")
+AUDIT_KEY = "test-audit-key-0123456789abcdef"
+
+KEYS = {
+    "det.okafor": "DEMO-KEY-DETECTIVE", "ofc.chen": "DEMO-KEY-PATROL",
+    "sgt.reyes": "DEMO-KEY-SUPERVISOR", "capt.voss": "DEMO-KEY-SUPERVISOR2",
+    "auditor.external": "DEMO-KEY-AUDITOR",
+    "ca.external": "DEMO-KEY-CHAINAUDITOR",
+    "ingest.local": "DEMO-KEY-INGEST", "jobs.local": "DEMO-KEY-JOBS",
+    "agency-a": "KEY-PARTNER-A", "agency-b": "KEY-PARTNER-B",
+    "agency-c": "KEY-PARTNER-C",
+}
+ROLES = {
+    "det.okafor": "detective", "ofc.chen": "patrol",
+    "sgt.reyes": "supervisor", "capt.voss": "supervisor",
+    "auditor.external": "auditor", "ca.external": "chain_auditor",
+    "ingest.local": "ingest", "jobs.local": "jobs",
+    "agency-a": "partner", "agency-b": "partner", "agency-c": "partner",
+}
+DET, PAT, SUP, SUP2, AUD, CA, ING, JOB = (
+    "det.okafor", "ofc.chen", "sgt.reyes", "capt.voss",
+    "auditor.external", "ca.external", "ingest.local", "jobs.local")
+CASES = ["2027-1001", "2027-1014", "2027-1023", "2027-1031",
+         "2027-1040", "2027-1052"]
+CAMERAS = ["CAM-%02d" % i for i in range(1, 10)]
+# pid-derived base: separate battery invocations never share a
+# port range, so a leaked server from an earlier run cannot bind
+# a later run's ports (it happened — see TRACK-123-REPORT)
+_port = [21900 + (os.getpid() % 300)]
+
+
+def next_port():
+    _port[0] += 1
+    return _port[0]
+
+
+def sha(t):
+    return hashlib.sha256(t.encode()).hexdigest()
+
+
+def now_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def ago_iso(**kw):
+    return (datetime.now(timezone.utc)
+            - timedelta(**kw)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def load_sentinel(tree):
+    path = os.path.join(tree, "sentinel.py")
+    spec = importlib.util.spec_from_file_location(
+        "sentinel_r_%s" % abs(hash(tree)), path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def req(port, method, path, user=None, body=None, raw_key=None,
+        timeout=60, headers=None):
+    r = urllib.request.Request("http://127.0.0.1:%d%s" % (port, path),
+                               method=method)
+    if user:
+        r.add_header("X-Noctua-User", user)
+        r.add_header("X-Noctua-Key", raw_key if raw_key is not None
+                     else KEYS[user])
+    for k, v in (headers or {}).items():
+        r.add_header(k, v)
+    data = None
+    if body is not None:
+        data = body if isinstance(body, bytes) else json.dumps(
+            body).encode()
+        r.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(r, data=data, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        try:
+            return e.code, json.loads(raw or b"{}")
+        except ValueError:
+            return e.code, {"raw": raw[:300].decode("utf-8", "replace")}
+    except Exception as exc:
+        return -1, {"error": repr(exc)}
+
+
+def _fixture_provisioned(db_path):
+    """1.2.7 (V4) harness adaptation: True when the fixture at
+    db_path has completed second-factor provisioning — the DB
+    marker, a non-empty TOTP store, or a restore marker whose
+    outgoing install was provisioned (or unknown: V6 treats
+    unknown as provisioned). Boot.start() drops the fixture's
+    NOCTUA_LAB flag for such an install, because a provisioned
+    install refuses lab mode at boot — the same rule production
+    enforces. Assertion-preserving: the flag governs only
+    whether key-only humans may use data surfaces, and a
+    provisioned fixture's humans authenticate with a second
+    factor."""
+    try:
+        if os.path.exists(db_path + ".totp.json"):
+            with open(db_path + ".totp.json") as f:
+                if json.load(f):
+                    return True
+    except Exception:
+        pass
+    try:
+        conn = sqlite3.connect("file:%s?mode=ro" % db_path,
+                               uri=True)
+        try:
+            row = conn.execute(
+                "SELECT value FROM meta WHERE key="
+                "'totp_provisioned'").fetchone()
+            if row and row[0]:
+                return True
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    if os.path.exists(db_path + ".restore_marker"):
+        # mirror Janus's V6 mapping exactly: the outgoing state
+        # is "never" ONLY when the marker says so explicitly
+        # (False / "never"); a missing field or an unparseable
+        # marker reads "unknown", and Janus treats unknown as
+        # provisioned (the re-enrollment flip materializes when
+        # the marker is consumed, and the install is provisioned
+        # from that boot on)
+        try:
+            with open(db_path + ".restore_marker") as f:
+                og = json.load(f).get("outgoing_provisioned")
+        except Exception:
+            og = None
+        if og is not False and og != "never":
+            return True
+    return False
+
+
+class Boot:
+    """One janus.py (or launcher) process for `tree` on a scratch dir."""
+
+    def __init__(self, tree, name, port=None, dirpath=None,
+                 audit_key="env", env_extra=None, script=None):
+        self.tree = tree
+        self.script = script or os.path.join(tree, "janus.py")
+        self.dir = dirpath or os.path.join(WORK, name)
+        if dirpath is None and os.path.exists(self.dir):
+            shutil.rmtree(self.dir)
+        os.makedirs(self.dir, exist_ok=True)
+        self.port = port or next_port()
+        self.db = os.path.join(self.dir, "janus.db")
+        self.users = os.path.join(self.dir, "users.json")
+        self.cases = os.path.join(self.dir, "cases.json")
+        self.cameras = os.path.join(self.dir, "cameras.json")
+        if not os.path.exists(self.users):
+            users = [{"user": u, "role": ROLES[u], "key_sha256": sha(k)}
+                     for u, k in KEYS.items()]
+            with open(self.users, "w") as f:
+                json.dump(users, f, indent=1)
+        if not os.path.exists(self.cases):
+            with open(self.cases, "w") as f:
+                json.dump({"open_cases": list(CASES)}, f)
+        if not os.path.exists(self.cameras):
+            with open(self.cameras, "w") as f:
+                json.dump(CAMERAS, f)
+        self.env = dict(os.environ)
+        self.env.update({
+            "NOCTUA_DB": self.db, "NOCTUA_USERS": self.users,
+            "NOCTUA_CASES": self.cases, "NOCTUA_CAMERAS": self.cameras,
+            "NOCTUA_PORT": str(self.port), "NOCTUA_BACKFILL_FLUSH_S": "1",
+            "NOCTUA_EVIDENCE_DIR": os.path.join(self.dir, "evidence"),
+            "NOCTUA_LAB": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "TMPDIR": os.path.join(WORK, "tmp")})
+        os.makedirs(os.path.join(WORK, "tmp"), exist_ok=True)
+        self.env.pop("NOCTUA_SENTINEL_SINK", None)
+        if audit_key == "env":
+            self.env["NOCTUA_AUDIT_KEY"] = AUDIT_KEY
+        elif audit_key is None:
+            self.env.pop("NOCTUA_AUDIT_KEY", None)
+        else:
+            self.env["NOCTUA_AUDIT_KEY"] = audit_key
+        if env_extra:
+            self.env.update(env_extra)
+        # an env_extra that NAMES the lab flag is an operator's
+        # explicit posture (a case testing the flag itself):
+        # start()'s auto-drop must not override it
+        self._lab_explicit = bool(
+            env_extra and "NOCTUA_LAB" in env_extra)
+        self.proc = None
+        self.log = os.path.join(self.dir, "server.log")
+
+    @property
+    def url(self):
+        return "http://127.0.0.1:%d" % self.port
+
+    def start(self, tries=120):
+        if self.env.get("NOCTUA_LAB") == "1" \
+                and not getattr(self, "_lab_explicit", False) \
+                and _fixture_provisioned(self.db):
+            self.env.pop("NOCTUA_LAB", None)
+        self.proc = subprocess.Popen(
+            [sys.executable, self.script], env=self.env,
+            stdout=open(self.log, "a"), stderr=subprocess.STDOUT,
+            cwd=self.dir)
+        for _ in range(tries):
+            if self.proc.poll() is not None:
+                raise RuntimeError("exited rc=%s: %s" % (
+                    self.proc.returncode,
+                    open(self.log).read()[-500:]))
+            # req() reports connection errors as status -1 rather
+            # than raising — poll for ANY HTTP answer (the 1.1
+            # fixture has no /ping and 404s it; an answer of any
+            # status means the server is listening). Polling for
+            # 200 exactly leaks the fixture's process: start()
+            # raises, the case's stop() never runs.
+            s, _b = req(self.port, "GET", "/ping", timeout=2)
+            if s > 0:
+                return self
+            time.sleep(0.25)
+        raise RuntimeError("instance %s did not start" % self.dir)
+
+    def stop(self):
+        if self.proc:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=10)
+            except Exception:
+                self.proc.kill()
+            self.proc = None
+
+    def sql(self, q, args=()):
+        c = sqlite3.connect(self.db, timeout=30)
+        try:
+            rows = c.execute(q, args).fetchall()
+            c.commit()
+            return rows
+        finally:
+            c.close()
+
+    def script_run(self, name, *args, env_extra=None):
+        env = dict(self.env)
+        if env_extra:
+            env.update(env_extra)
+        return subprocess.run(
+            [sys.executable, os.path.join(self.tree, "scripts", name),
+             *args], env=env, capture_output=True, text=True,
+            timeout=600)
+
+
+def pub_pem(db_path):
+    return open(db_path + ".signing_pub.pem").read()
+
+
+def sign(db_path, sentinel, obj):
+    return sentinel.sign_bytes(db_path + ".signing_key.pem",
+                               sentinel.canonical_bytes(obj))
+
+
+def place_and_hit(tree, name, plate="TWO222"):
+    """A fresh instance with a hot-listed plate read -> PENDING hit.
+    1.2.6 (U6) living-suite adaptation, assertion-preserving:
+    every SETUP hotlist add in this battery (this helper and the
+    direct req() adds in R1/R2/R9/R11/R15/R16) now posts as SUP —
+    under U6 a detective's add is a pending submission that
+    matches nothing until a supervisor approves it, so a setup
+    that needs the entry live places it via the direct add. No
+    assertion in this battery tests the add's actor."""
+    A = Boot(tree, name).start()
+    req(A.port, "POST", "/hotlist", SUP,
+        {"plate": plate, "state": "AR", "category": "felony warrant",
+         "case": "2027-1031"})
+    s, b = req(A.port, "POST", "/reads", ING,
+               {"plate": plate, "state": "AR", "cam": "CAM-01"})
+    assert s == 201 and b.get("hit_id"), b
+    return A, b["hit_id"]
+
+
+def verify_hit(port, hit, case="2027-1031"):
+    return req(port, "POST", "/verify", DET,
+               {"hit_id": hit, "decision": "confirm", "case": case})
+
+
+RESULTS = []
+
+
+def report(name, ok, detail):
+    RESULTS.append((name, ok))
+    print("CASE %s %s :: %s" % (name, "PASS" if ok else "FAIL",
+                                json.dumps(detail, default=str)[:1200]))
+    sys.stdout.flush()
+
+
+def run_case(name, fn, measurement=False):
+    """Run fn against BASE then TEST; combine per the standard."""
+    try:
+        base_ok, base_detail = fn(BASE_TREE, "base")
+    except Exception as exc:
+        base_ok, base_detail = False, {"exception": repr(exc)[:400]}
+    try:
+        test_ok, test_detail = fn(TEST_TREE, "test")
+    except Exception as exc:
+        test_ok, test_detail = False, {"exception": repr(exc)[:400]}
+    if measurement:
+        ok = test_ok
+    else:
+        ok = test_ok and not base_ok
+    report(name, ok, {"baseline_122": {"ok": base_ok,
+                                       "detail": base_detail},
+                      "test_123": {"ok": test_ok,
+                                   "detail": test_detail},
+                      "discriminating": not base_ok})
+
+
+# ------------------------------------------------------------------
+# R1 — protection orders are records (both Claude seats' forced
+# change): two orders on one vehicle coexist; releasing one lifts
+# only that one. Native form and migrated-from-1.1 form.
+# ------------------------------------------------------------------
+def r1_native(tree, side):
+    A, hit = place_and_hit(tree, "r1n-%s" % side)
+    try:
+        p = A.port
+        # the hit stays PENDING: suppression is probed by whether
+        # /verify will decide it (403 while an order is live). A
+        # pre-confirm would make every later verify a 409
+        # regardless of suppression — the probe must not decide
+        # the hit first.
+        req(p, "POST", "/suppressions", SUP,
+            {"plate": "TWO222", "order_ref": "PO-A (DEMO)"})
+        req(p, "POST", "/suppressions", SUP,
+            {"plate": "TWO222", "order_ref": "PO-B (DEMO)"})
+        rows = A.sql("SELECT order_ref, active FROM suppressions "
+                     "ORDER BY order_ref")
+        s0, _ = verify_hit(p, hit)
+        req(p, "POST", "/suppressions/release", SUP,
+            {"plate": "TWO222", "order_ref": "PO-B (DEMO)"})
+        r2 = req(p, "POST", "/suppressions/release", SUP2,
+                 {"plate": "TWO222", "order_ref": "PO-B (DEMO)"})
+        s1, _ = verify_hit(p, hit)
+        ok = (len(rows) == 2 and s0 == 409 and r2[0] == 200
+              and s1 == 409)
+        return ok, {"rows": rows, "verify_before": s0,
+                    "release_B": r2[0], "verify_after_release_B": s1}
+    finally:
+        A.stop()
+
+
+def r1_migrated(tree, side):
+    d = os.path.join(WORK, "r1m-%s" % side)
+    shutil.rmtree(d, ignore_errors=True)
+    B = Boot(FIX11, "r1m-%s" % side, dirpath=d).start()
+    hit = None
+    try:
+        p = B.port
+        req(p, "POST", "/hotlist", SUP,
+            {"plate": "DUO888", "state": "AR", "case": "2027-1031",
+             "category": "felony warrant"})
+        s, b = req(p, "POST", "/reads", ING,
+                   {"plate": "DUO888", "state": "AR", "cam": "CAM-01"})
+        hit = b["hit_id"]
+        for st, ref in (("TX", "PO-A-TX (DEMO)"),
+                        ("AR", "PO-B-AR (DEMO)")):
+            s, b = req(p, "POST", "/suppressions", SUP,
+                       {"plate": "DUO888", "state": st,
+                        "order_ref": ref})
+            assert s in (200, 201), b
+    finally:
+        B.stop()
+    U = Boot(tree, "r1m-%s" % side, dirpath=d).start()
+    try:
+        p = U.port
+        rows = U.sql("SELECT order_ref, active FROM suppressions "
+                     "ORDER BY order_ref")
+        s0, _ = verify_hit(p, hit)
+        req(p, "POST", "/suppressions/release", SUP,
+            {"plate": "DUO888", "order_ref": "PO-A-TX (DEMO)"})
+        r2 = req(p, "POST", "/suppressions/release", SUP2,
+                 {"plate": "DUO888", "order_ref": "PO-A-TX (DEMO)"})
+        s1, _ = verify_hit(p, hit)
+        ok = (len(rows) == 2 and s0 == 409 and r2[0] == 200
+              and s1 == 409)
+        return ok, {"rows_after_migration": rows,
+                    "verify_before": s0, "release_A": r2[0],
+                    "verify_after_release_A": s1}
+    finally:
+        U.stop()
+
+
+# ------------------------------------------------------------------
+# R2 — migration integrity: per-item isolation, nothing silent.
+# (a) The F2a shape: a formatting-variant duplicate in the legacy
+#     hot list must not abort the whole repair pass.
+# (b) The receipts dedupe is DATA mutation: it must not run on a
+#     key-locked boot (cold-Vesper F3); on the first unlocked boot
+#     it runs and is chained.
+# ------------------------------------------------------------------
+def r2_migration(tree, side):
+    d = os.path.join(WORK, "r2-%s" % side)
+    shutil.rmtree(d, ignore_errors=True)
+    B = Boot(FIX11, "r2-%s" % side, dirpath=d).start()
+    hit = None
+    try:
+        p = B.port
+        # two spellings of one plate in the 1.1 hot list (the
+        # collision that aborted 1.2.2's pass) + a protected hit
+        for plate in ("VIC 309", "VIC309"):
+            s, b = req(p, "POST", "/hotlist", SUP,
+                       {"plate": plate, "state": "AR",
+                        "case": "2027-1014",
+                        "category": "stolen vehicle"})
+            assert s in (200, 201), b
+        req(p, "POST", "/hotlist", SUP,
+            {"plate": "PRT555", "state": "AR", "case": "2027-1031",
+             "category": "felony warrant"})
+        s, b = req(p, "POST", "/reads", ING,
+                   {"plate": "PRT555", "state": "AR", "cam": "CAM-01"})
+        assert s == 201 and b.get("result") == "ALERT", b
+        hit = b["hit_id"]
+        s, b = req(p, "POST", "/suppressions", SUP,
+                   {"plate": "PRT555", "state": "AR",
+                    "order_ref": "PO-R2 (DEMO)"})
+        assert s in (200, 201), b
+    finally:
+        B.stop()
+    U = Boot(tree, "r2-%s" % side, dirpath=d).start()
+    try:
+        p = U.port
+        sent = load_sentinel(tree)
+        mig = U.sql("SELECT COUNT(*) FROM audit WHERE "
+                    "kind='MIGRATION'")[0][0]
+        ref = U.sql("SELECT plate_ref FROM suppressions WHERE "
+                    "plate='PRT555'")[0][0]
+        current = sent.plate_ref(AUDIT_KEY, "PRT555")
+        s_h, health = req(p, "GET", "/health", SUP)
+        ms = health.get("migration_status") or {}
+        s_v, _ = verify_hit(p, hit)
+        ok = (mig >= 1 and ref == current and s_v == 409
+              and ms.get("state") in ("complete", "incomplete"))
+        return ok, {"migration_entries": mig,
+                    "ref_is_current_formula": ref == current,
+                    "verify_protected_hit": s_v,
+                    "migration_status": ms}
+    finally:
+        U.stop()
+
+
+def r2_receipts(tree, side):
+    A = Boot(tree, "r2r-%s" % side).start()
+    try:
+        p = A.port
+        sent = load_sentinel(tree)
+        # a partner + a checkpoint + a signed receipt -> 1 row
+        req(p, "POST", "/compact/partners", SUP,
+            {"agency": "agency-a", "endpoint": "http://x",
+             "pubkey_pem": pub_pem(A.db)})
+        r = A.script_run("checkpoint.py")
+        assert r.returncode == 0, r.stderr
+        cp = json.loads([l for l in r.stdout.splitlines()
+                         if l.startswith("{")][0])
+        payload = {"agency": "agency-a", "checkpoint_ts": cp["ts"],
+                   "entries": cp["entries"], "root": cp["root"]}
+        s, b = req(p, "POST", "/compact/checkpoint-receipt", "agency-a",
+                   {"agency": "agency-a", "checkpoint_root": cp["root"],
+                    "checkpoint_entries": cp["entries"],
+                    "checkpoint_ts": cp["ts"],
+                    "signature": sign(A.db, sent, payload)})
+        assert s in (200, 201), b
+    finally:
+        A.stop()
+    # legacy shape: drop the unique index, duplicate the row
+    # (every column but the autoincrement id)
+    c = sqlite3.connect(A.db)
+    c.execute("DROP INDEX IF EXISTS idx_receipts_agency_root")
+    cols = [r[1] for r in c.execute(
+        "PRAGMA table_info(compact_receipts)")]
+    sel = ", ".join("NULL" if col == "id" else col for col in cols)
+    c.execute("INSERT INTO compact_receipts(%s) SELECT %s FROM "
+              "compact_receipts" % (", ".join(cols), sel))
+    c.commit()
+    n_dup = c.execute("SELECT COUNT(*) FROM compact_receipts").fetchone()[0]
+    c.close()
+    assert n_dup == 2, n_dup
+    # locked boot (wrong key): the rows must be UNTOUCHED
+    L = Boot(tree, "r2r-%s" % side, dirpath=A.dir,
+             audit_key="a-wrong-key-r2")
+    r = subprocess.run([sys.executable, L.script], env=L.env,
+                       capture_output=True, text=True, timeout=60)
+    n_locked = A.sql("SELECT COUNT(*) FROM compact_receipts")[0][0]
+    # unlocked boot: dedupe runs and is chained in MIGRATION counts
+    U = Boot(tree, "r2r-%s" % side, dirpath=A.dir).start()
+    try:
+        n_after = U.sql("SELECT COUNT(*) FROM compact_receipts")[0][0]
+        mig = U.sql("SELECT payload FROM audit WHERE kind='MIGRATION' "
+                    "ORDER BY seq DESC LIMIT 1")
+        deduped = 0
+        if mig:
+            deduped = json.loads(mig[0][0]).get("receipts_deduped", 0)
+        ok = (r.returncode == 3 and n_locked == 2 and n_after == 1
+              and deduped >= 1)
+        return ok, {"locked_rc": r.returncode,
+                    "rows_after_locked_boot": n_locked,
+                    "rows_after_unlocked_boot": n_after,
+                    "receipts_deduped_chained": deduped}
+    finally:
+        U.stop()
+
+
+# ------------------------------------------------------------------
+# R3 — the pin ceremony works on real databases (seat 2 F1): on a
+# DB written by the tree itself and on a DB written by the real
+# 1.1 build; and a quiet 1.1 install has a supported path to boot.
+# ------------------------------------------------------------------
+def r3_pin(tree, side):
+    FP = hashlib.sha256(AUDIT_KEY.encode()).hexdigest()
+    prov = os.path.join(tree, "scripts", "provision.py")
+
+    def pin(db):
+        env = dict(os.environ, NOCTUA_AUDIT_KEY=AUDIT_KEY)
+        return subprocess.run(
+            [sys.executable, prov, "pin-audit-key", "--db", db,
+             "--fingerprint", FP, "--confirm"], env=env,
+            capture_output=True, text=True, timeout=120)
+
+    A = Boot(tree, "r3n-%s" % side).start()
+    try:
+        s, b = req(A.port, "GET",
+                   "/search?plate=PIN100&case=2027-1014"
+                   "&justification=pin&tier=2", DET)
+        assert s == 200, b
+    finally:
+        A.stop()
+    r_native = pin(A.db)
+    B = Boot(FIX11, "r3v-%s" % side).start()
+    try:
+        req(B.port, "POST", "/suppressions", SUP,
+            {"plate": "VIC309", "order_ref": "PO-R3 (DEMO)"})
+        req(B.port, "GET", "/search?plate=CTL100&case=2027-1014"
+            "&justification=pin&tier=2", DET)
+    finally:
+        B.stop()
+    r_v11 = pin(B.db)
+    # after the ceremony the 1.1 DB boots on the tree under test
+    U = Boot(tree, "r3v-%s" % side, dirpath=B.dir, audit_key=None)
+    # the ceremony wrote the pin; the key FILE route must now work:
+    # provision placed no key file, so give it the env key instead
+    U2 = Boot(tree, "r3v-%s" % side, dirpath=B.dir, audit_key="env")
+    booted = False
+    try:
+        U2.start()
+        booted = True
+    except Exception:
+        booted = False
+    finally:
+        U2.stop()
+    ok = (r_native.returncode == 0 and r_v11.returncode == 0
+          and booted)
+    return ok, {"pin_native_rc": r_native.returncode,
+                "pin_native_err": r_native.stderr.strip()[-160:],
+                "pin_11_rc": r_v11.returncode,
+                "pin_11_err": r_v11.stderr.strip()[-160:],
+                "upgraded_boot_after_ceremony": booted}
+
+
+# ------------------------------------------------------------------
+# R4 — no out-of-lock side effects (seat 2 F4): an anonymous
+# pre-auth /health racing a case-file change must not roll back
+# another request's answered write. Racy on 1.2.2 by construction
+# (the seat lost a write in 11 of 12 runs; the orchestrator 3 of
+# 3), so the baseline side gets up to 3 attempts and the case
+# discriminates if ANY attempt reproduces; on 1.2.3 the mechanism
+# is removed (auth never chains; the verify never runs in-lock),
+# so a single clean run is the expectation.
+# ------------------------------------------------------------------
+def r4_race(tree, side):
+    attempts = 3 if tree == BASE_TREE else 1
+    worst = None
+    for i in range(attempts):
+        A = Boot(tree, "r4-%s-%d" % (side, i)).start()
+        try:
+            p = A.port
+            n_before = A.sql("SELECT COUNT(*) FROM audit")[0][0]
+            lock = sqlite3.connect(A.db, timeout=1,
+                                   isolation_level=None)
+            lock.execute("BEGIN IMMEDIATE")
+            with open(A.cases, "w") as f:
+                json.dump({"open_cases": CASES + ["2027-9001"]}, f)
+            out = {}
+
+            def anon_health():
+                out["x"] = req(p, "GET", "/health", timeout=120)
+
+            def writer():
+                out["y"] = req(p, "POST", "/suppressions", SUP,
+                               {"plate": "F4SAFE1",
+                                "order_ref": "PO-R4 (DEMO)"},
+                               timeout=120)
+
+            tx = threading.Thread(target=anon_health)
+            tx.start()
+            time.sleep(0.5)
+            ty = threading.Thread(target=writer)
+            ty.start()
+            time.sleep(6.5)
+            lock.execute("COMMIT")
+            lock.close()
+            tx.join(60)
+            ty.join(60)
+            time.sleep(0.5)
+            kinds = [r[0] for r in A.sql(
+                "SELECT kind FROM audit WHERE seq > ? ORDER BY seq",
+                (n_before,))]
+            rows = A.sql("SELECT plate, active FROM suppressions "
+                         "WHERE plate='F4SAFE1'")
+            y = out.get("y") or (None, {})
+            defect = (y[0] == 201 and not rows
+                      and "SUPPRESSION_PLACE" in kinds)
+            detail = {"writer_status": y[0], "rows_in_db": rows,
+                      "kinds_after": kinds}
+            if defect:
+                return False, dict(detail, attempt=i + 1)
+            worst = detail
+        finally:
+            A.stop()
+    return True, dict(worst or {}, attempts=attempts)
+
+
+# ------------------------------------------------------------------
+# R5 — the sink battery: (a) the Q16 construction done properly
+# (real sink variable, sink down, forced rollbacks, drain) — no
+# phantoms, no duplicates, no dropped committed entries; (b) the
+# deterministic Chain-level twin probe (cold-Vesper F4): a
+# rolled-back entry and its identical re-append share (seq, hash);
+# the sink must receive exactly one copy.
+# ------------------------------------------------------------------
+def r5_sink(tree, side):
+    import random as _random
+    d = os.path.join(WORK, "r5-%s" % side)
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    sinkdir = os.path.join(d, "sinkdir")
+    os.makedirs(sinkdir)
+    fi = os.path.join(TEST_TREE, "tests", "attacks", "round6",
+                      "janus_fi.py")
+    A = Boot(tree, "r5-%s" % side, dirpath=d, script=fi,
+             env_extra={"SEAT_TREE": tree,
+                        "NOCTUA_SENTINEL_SINK": sinkdir}).start()
+    try:
+        p = A.port
+        stop = time.time() + 8
+
+        def writer(i):
+            rng = _random.Random(500 + i)
+            while time.time() < stop:
+                fail = rng.random() < 0.5
+                req(p, "POST", "/heartbeat", JOB,
+                    {"job": "r5-%d" % i, "ok": True, "detail": "r5"},
+                    headers={"X-Seat-Fail-Commit": "1"} if fail
+                    else None)
+
+        threads = [threading.Thread(target=writer, args=(i,))
+                   for i in range(12)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        spool = sinkdir + ".spool"
+        spooled = 0
+        if os.path.exists(spool):
+            spooled = sum(1 for l in open(spool) if l.strip())
+        shutil.rmtree(sinkdir)
+        req(p, "POST", "/heartbeat", JOB, {"job": "r5-drain",
+                                           "ok": True})
+        time.sleep(1.0)
+    finally:
+        A.stop()
+    chain = {(r[0], r[1]) for r in
+             A.sql("SELECT seq, hash FROM audit")}
+    lines = []
+    if os.path.isfile(sinkdir):
+        lines = [json.loads(l) for l in open(sinkdir) if l.strip()]
+    streamed = [(e["seq"], e["hash"]) for e in lines]
+    phantom = [x for x in streamed if x not in chain]
+    dupes = len(streamed) - len(set(streamed))
+    missing = len(chain) - len(set(streamed) & chain)
+    ok = (spooled > 0 and not phantom and dupes == 0
+          and missing == 0)
+    return ok, {"spooled_while_down": spooled,
+                "sink_lines": len(lines), "chain_entries": len(chain),
+                "phantom": len(phantom), "dupes": dupes,
+                "committed_never_streamed": missing}
+
+
+def r5_twin(tree, side):
+    sent = load_sentinel(tree)
+    for attempt in range(3):
+        d = os.path.join(WORK, "r5t-%s-%d" % (side, attempt))
+        shutil.rmtree(d, ignore_errors=True)
+        os.makedirs(d)
+        sink = os.path.join(d, "sink.jsonl")
+        os.environ["NOCTUA_SENTINEL_SINK"] = sink
+        try:
+            dbp = os.path.join(d, "janus.db")
+            conn = sqlite3.connect(dbp)
+            ch = sent.Chain(dbp, conn=conn)
+            conn.execute("BEGIN")
+            e1 = ch.append("HEARTBEAT", {"job": "twin-probe",
+                                         "n": 1})
+            conn.execute("ROLLBACK")
+            e2 = ch.append("HEARTBEAT", {"job": "twin-probe",
+                                         "n": 1})
+            conn.commit()
+            ch.flush_deferred()
+            conn.close()
+        finally:
+            os.environ.pop("NOCTUA_SENTINEL_SINK", None)
+        if e1["hash"] != e2["hash"] or e1["seq"] != e2["seq"]:
+            continue  # second boundary straddle; rebuild
+        lines = [json.loads(l) for l in open(sink) if l.strip()] \
+            if os.path.exists(sink) else []
+        copies = sum(1 for l in lines
+                     if (l["seq"], l["hash"]) == (e2["seq"],
+                                                  e2["hash"]))
+        ok = copies == 1
+        return ok, {"seq": e2["seq"], "sink_lines": len(lines),
+                    "copies_of_the_entry": copies}
+    return False, {"error": "could not construct the twin in 3 tries"}
+
+
+# ------------------------------------------------------------------
+# R6 — rotation ceremony: commit phase freezes at the first
+# reveal; contributions are authored, not couriered; a missed
+# cycle can be cancelled and a new one opened.
+# ------------------------------------------------------------------
+def r6_rotation(tree, side):
+    sent = load_sentinel(tree)
+    A = Boot(tree, "r6-%s" % side).start()
+    try:
+        p = A.port
+        partners = ["agency-a", "agency-b", "agency-c"]
+        pub = pub_pem(A.db)
+        for ag in partners:
+            s, b = req(p, "POST", "/compact/partners", SUP,
+                       {"agency": ag, "endpoint": "http://x",
+                        "pubkey_pem": pub})
+            assert s == 201, b
+        members = sorted(["THIS-AGENCY"] + partners)
+        today = datetime.now(timezone.utc).date().isoformat()
+        s, b = req(p, "POST", "/compact/rotation/commit", SUP,
+                   {"members": members, "cycle_start": today,
+                    "period_days": 30})
+        assert s == 201, b
+        nonces = {}
+        for ag in partners:
+            n = "secret-%s-%s" % (ag, "0123456789abcdef")
+            nonces[ag] = n
+            s, b = req(p, "POST", "/compact/rotation/contribute", ag,
+                       {"cycle_start": today, "agency": ag,
+                        "nonce_hash": sha(n)})
+            assert s == 201, b
+        for ag in partners:
+            s, b = req(p, "POST", "/compact/rotation/reveal", ag,
+                       {"cycle_start": today, "agency": ag,
+                        "nonce": nonces[ag]})
+            assert s == 201, b
+        # (a) the home agency's commitment arrives AFTER every
+        # partner revealed — the grind. Frozen on 1.2.3 (409).
+        late = req(p, "POST", "/compact/rotation/contribute", SUP,
+                   {"cycle_start": today, "agency": "THIS-AGENCY",
+                    "nonce_hash": sha("home-late-nonce-0123456789")})
+        # (b) a supervisor transports a partner reveal with NO
+        # partner signature — refused on 1.2.3 (403).
+        unsigned = req(p, "POST", "/compact/rotation/reveal", SUP,
+                       {"cycle_start": today, "agency": "agency-a",
+                        "nonce": nonces["agency-a"]})
+        # (c) the cycle cannot publish (the home reveal never
+        # legitimately lands): cancel it (two-key — reveals
+        # exist) and open a fresh one.
+        c1 = req(p, "POST", "/compact/rotation/cancel", SUP,
+                 {"cycle_start": today})
+        c2 = req(p, "POST", "/compact/rotation/cancel", AUD,
+                 {"cycle_start": today})
+        fresh = req(p, "POST", "/compact/rotation/commit", SUP,
+                    {"members": members, "cycle_start": today,
+                     "period_days": 30})
+        ok = (late[0] == 409 and unsigned[0] == 403
+              and c1[0] == 200 and c2[0] == 200
+              and fresh[0] == 201)
+        return ok, {"late_commit_after_reveals": late[0],
+                    "unsigned_supervisor_transport": unsigned[0],
+                    "cancel_request": c1[0], "cancel_confirm": c2[0],
+                    "fresh_commit_after_cancel": fresh[0]}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# R7 — Compact anchoring: two consecutive compact.py runs against
+# a healthy partner both pass (seat 2 F7 / Gemini F1), and a
+# future-dated checkpoint is not "fresh".
+# ------------------------------------------------------------------
+def r7_compact(tree, side):
+    A = Boot(tree, "r7a-%s" % side).start()
+    B = Boot(tree, "r7b-%s" % side).start()
+    try:
+        pa, pb = A.port, B.port
+        sent = load_sentinel(tree)
+        req(pa, "POST", "/compact/partners", SUP,
+            {"agency": "agency-b", "endpoint": B.url,
+             "pubkey_pem": pub_pem(B.db)})
+        req(pb, "POST", "/compact/partners", SUP,
+            {"agency": "agency-a", "endpoint": A.url,
+             "pubkey_pem": pub_pem(A.db)})
+        pubfile = os.path.join(A.dir, "b-pub.pem")
+        with open(pubfile, "w") as f:
+            f.write(pub_pem(B.db))
+        state = os.path.join(A.dir, "compact-state.json")
+
+        def compact_run():
+            r = subprocess.run(
+                [sys.executable, os.path.join(tree, "scripts",
+                                              "compact.py"),
+                 "--partner-url", B.url, "--partner-user", CA,
+                 "--partner-key", KEYS[CA], "--agency", "agency-b",
+                 "--partner-pubkey", pubfile, "--janus", A.url,
+                 "--auditor-user", AUD, "--auditor-key", KEYS[AUD],
+                 "--our-agency", "agency-a", "--receipt-user",
+                 "agency-a", "--receipt-key", KEYS["agency-a"],
+                 "--db", A.db, "--state", state],
+                env=dict(os.environ, NOCTUA_AUDIT_KEY=AUDIT_KEY),
+                capture_output=True, text=True, timeout=300)
+            try:
+                return json.loads(r.stdout)
+            except ValueError:
+                return {"ok": None, "raw": (r.stdout + r.stderr)[-300:]}
+
+        r = B.script_run("checkpoint.py")
+        assert r.returncode == 0, r.stderr
+        for _ in range(3):
+            req(pb, "POST", "/heartbeat", JOB,
+                {"job": "checkpoint", "ok": True})
+        run1 = compact_run()
+        for _ in range(3):
+            req(pb, "POST", "/heartbeat", JOB,
+                {"job": "backup", "ok": True})
+        run2 = compact_run()
+        # future-dated checkpoint: correctly signed, 2h ahead
+        root, n = B.sql("SELECT hash, seq FROM audit ORDER BY seq "
+                        "DESC LIMIT 1")[0]
+        fts = (datetime.now(timezone.utc)
+               + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        cp = {"date": fts[:10], "ts": fts, "root": root, "entries": n,
+              "agency": "THIS-AGENCY", "sig_alg": "ed25519"}
+        cp["sig"] = sent.sign_bytes(
+            B.db + ".signing_key.pem",
+            sent.checkpoint_signed_bytes(cp))
+        cp["pubkey"] = pub_pem(B.db)
+        with open(B.db + ".checkpoints.jsonl", "a") as f:
+            f.write(json.dumps(cp, sort_keys=True) + "\n")
+        run3 = compact_run()
+        ok = (run1.get("ok") is True and run2.get("ok") is True
+              and run3.get("ok") is False
+              and run3.get("checks", {}).get("checkpoint_fresh")
+              is False)
+        return ok, {"run1_ok": run1.get("ok"),
+                    "run2_ok": run2.get("ok"),
+                    "run2_checks": {k: run2.get("checks", {}).get(k)
+                                    for k in ("anchor_root",
+                                              "root_matches")},
+                    "future_cp_ok": run3.get("ok"),
+                    "future_cp_fresh": run3.get("checks", {}).get(
+                        "checkpoint_fresh")}
+    finally:
+        A.stop()
+        B.stop()
+
+
+# ------------------------------------------------------------------
+# R8 — one verification implementation: a partner chain with a
+# RELABELED v1 entry (kind column disagrees with its payload)
+# must fail BOTH external tools — compact.py's recompute and
+# sentinel_audit.py --url. On 1.2.2 both tools' private hash
+# loops pass it (Gemini F7).
+# ------------------------------------------------------------------
+def r8_verify(tree, side):
+    sent = load_sentinel(tree)
+    d = os.path.join(WORK, "r8-%s" % side)
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    dbp = os.path.join(d, "janus.db")
+    ch = sent.Chain(dbp)
+    for i in range(5):
+        ch.append("HEARTBEAT", {"job": "r8-%d" % i, "ok": True})
+    ch.db.close()
+    # relabel entry 3 as a v1 entry whose kind column lies: rebuild
+    # its payload in the v1 envelope (kind/ts inside the payload),
+    # rehash with the v1 formula, and re-link entry 4.
+    c = sqlite3.connect(dbp)
+    rows = c.execute("SELECT seq, ts, kind, payload, prev, hash "
+                     "FROM audit ORDER BY seq").fetchall()
+    seq3 = rows[2]
+    fields = {k: v for k, v in json.loads(seq3[3]).items()
+              if k not in ("v", "ts", "kind")}
+    v1_payload = json.dumps(dict(fields, kind="HEARTBEAT",
+                                 ts=seq3[1]),
+                            sort_keys=True, separators=(",", ":"))
+    v1_hash = hashlib.sha256(
+        ("%s|%s" % (seq3[4], v1_payload)).encode()).hexdigest()
+    c.execute("UPDATE audit SET kind='HITS_VIEW', payload=?, "
+              "hash=? WHERE seq=?", (v1_payload, v1_hash, seq3[0]))
+    seq4 = rows[3]
+    p4 = seq4[3]
+    h4 = sent.entry_hash(v1_hash, seq4[1], seq4[2], p4)
+    c.execute("UPDATE audit SET prev=?, hash=? WHERE seq=?",
+              (v1_hash, h4, seq4[0]))
+    seq5 = rows[4]
+    h5 = sent.entry_hash(h4, seq5[1], seq5[2], seq5[3])
+    c.execute("UPDATE audit SET prev=?, hash=? WHERE seq=?",
+              (h4, h5, seq5[0]))
+    c.commit()
+    c.close()
+    with open(dbp + ".audit_key", "w") as f:
+        f.write(AUDIT_KEY)
+    # the doctored chain holds no key-checkable refs, so the boot
+    # would (correctly) refuse it as unpinned — pin the key first
+    # through the tree's own ceremony (the Q17 pattern), THEN boot
+    fp = hashlib.sha256(AUDIT_KEY.encode()).hexdigest()
+    r = subprocess.run(
+        [sys.executable, os.path.join(tree, "scripts",
+                                      "provision.py"),
+         "pin-audit-key", "--db", dbp, "--fingerprint", fp,
+         "--confirm"],
+        env=dict(os.environ, NOCTUA_AUDIT_KEY=AUDIT_KEY),
+        capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    A = Boot(tree, "r8-%s" % side, dirpath=d, audit_key=None).start()
+    try:
+        p = A.port
+        # compact.py's recompute, called directly. compact.py
+        # imports `sentinel` from its own tree root — purge the
+        # other tree's cached module first, or the baseline's
+        # sentinel answers for the test tree (it happened: the
+        # 1.2.3 compact ran against 1.2.2's sentinel and reported
+        # verify_chain_rows missing).
+        saved = sys.modules.pop("sentinel", None)
+        spec = importlib.util.spec_from_file_location(
+            "compact_r8_%s" % side, os.path.join(tree, "scripts",
+                                                 "compact.py"))
+        cm = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(cm)
+        finally:
+            sys.modules.pop("sentinel", None)
+            if saved is not None:
+                sys.modules["sentinel"] = saved
+        ok_c, _n, _h, detail_c = cm.recompute(
+            A.url, CA, KEYS[CA], 0, "GENESIS", 5)
+        # sentinel_audit.py --url with the partner pubkey pinned
+        pubf = os.path.join(d, "pub.pem")
+        with open(pubf, "w") as f:
+            f.write(pub_pem(dbp))
+        r = subprocess.run(
+            [sys.executable, os.path.join(tree, "scripts",
+                                          "sentinel_audit.py"),
+             "--url", A.url, "--user", AUD, "--key", KEYS[AUD],
+             "--pubkey", pubf],
+            env=dict(os.environ, NOCTUA_AUDIT_KEY=AUDIT_KEY),
+            capture_output=True, text=True, timeout=120)
+        # The discriminating line is the INDEPENDENT recompute
+        # check: the self-report check fails on both trees (the
+        # served Janus is honest — it is the external tools'
+        # private verification loops that drifted, Gemini F7).
+        indep = None
+        try:
+            rep = json.loads(r.stdout)
+            for chk in rep.get("checks", []):
+                if chk.get("name") == ("chain integrity "
+                                       "(independent recompute)"):
+                    indep = chk.get("status")
+        except ValueError:
+            indep = "unparseable"
+        ok = (ok_c is False) and indep == "fail"
+        return ok, {"compact_recompute_ok": ok_c,
+                    "compact_detail": detail_c,
+                    "sentinel_audit_independent": indep,
+                    "sentinel_audit_rc": r.returncode}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# R9 — supersede completeness (Gemini F8): a same-plate
+# improvement re-points the PENDING hit; a later different-plate
+# correction then withdraws it.
+# ------------------------------------------------------------------
+def r9_supersede(tree, side):
+    A = Boot(tree, "r9-%s" % side).start()
+    try:
+        p = A.port
+        req(p, "POST", "/hotlist", SUP,
+            {"plate": "ORG111", "state": "AR", "case": "2027-1014",
+             "category": "stolen vehicle"})
+        s, b = req(p, "POST", "/reads", ING,
+                   {"plate": "ORG111", "state": "AR", "cam": "CAM-01",
+                    "event_id": "evt-r9", "conf": 0.80,
+                    "event_type": "update"})
+        assert s == 201 and b.get("hit_id"), b
+        hit = b["hit_id"]
+        s, b = req(p, "POST", "/reads", ING,
+                   {"plate": "ORG111", "state": "AR", "cam": "CAM-01",
+                    "event_id": "evt-r9", "conf": 0.95,
+                    "event_type": "update"})
+        assert b.get("result") == "superseded", b
+        s, b = req(p, "POST", "/reads", ING,
+                   {"plate": "NEW222", "state": "AR", "cam": "CAM-01",
+                    "event_id": "evt-r9", "conf": 0.96,
+                    "event_type": "update"})
+        status = A.sql("SELECT status FROM hits WHERE id=?",
+                       (hit,))[0][0]
+        # 1.2.6 (U4): the superseded original is PENDING_SUPERSEDED
+        # (was WITHDRAWN in 1.2.3-1.2.5); the invariant — the
+        # original hit leaves PENDING via the supersede path and
+        # stays listed for a supervisor to dispose of — is
+        # unchanged.
+        ok = status == "PENDING_SUPERSEDED"
+        return ok, {"original_hit_status": status,
+                    "third_delivery": b.get("result")}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# R10 — restore trust root (seat 2 F11): a bare host must refuse
+# a set that vouches for itself; the same tooling installs a
+# legitimate set when the fingerprint is pinned.
+# ------------------------------------------------------------------
+def r10_restore(tree, side):
+    import hmac as hmac_mod
+    sent = load_sentinel(tree)
+    ATK = "attacker-audit-key-000000000000"
+    M = Boot(tree, "r10-atk-%s" % side, audit_key=ATK)
+    users = [{"user": "mallory", "role": "supervisor",
+              "key_sha256": sha("MALLORY")}]
+    with open(M.users, "w") as f:
+        json.dump(users, f)
+    M.start()
+    M.stop()
+    bk = os.path.join(M.dir, "bk")
+    env = dict(M.env, NOCTUA_BACKUP_DIR=bk, NOCTUA_JANUS_URL="")
+    env.pop("NOCTUA_AUDIT_KEY", None)
+    with open(M.db + ".audit_key", "w") as f:
+        f.write(ATK)
+    r = subprocess.run([sys.executable, os.path.join(
+        tree, "scripts", "backup.py"), "--no-prune"], env=env,
+        capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    bset = os.path.join(bk, sorted(os.listdir(bk))[-1])
+    m = json.load(open(os.path.join(bset, "manifest.json")))
+    m.pop("manifest_sig", None)
+    m.pop("sig_alg", None)
+    for nm in ("signing_pub.pem", "signing_key.pem"):
+        if os.path.exists(os.path.join(bset, nm)):
+            os.remove(os.path.join(bset, nm))
+        m["files"].pop(nm, None)
+    body = {k: v for k, v in m.items()
+            if k not in ("manifest_hmac", "manifest_sig", "sig_alg")}
+    m["manifest_hmac"] = hmac_mod.new(
+        ATK.encode(), sent.canonical_bytes(body),
+        hashlib.sha256).hexdigest()
+    json.dump(m, open(os.path.join(bset, "manifest.json"), "w"))
+    host = os.path.join(WORK, "r10-host-%s" % side)
+    shutil.rmtree(host, ignore_errors=True)
+    os.makedirs(host)
+    renv = dict(os.environ)
+    renv.pop("NOCTUA_AUDIT_KEY", None)
+    r_atk = subprocess.run(
+        [sys.executable, os.path.join(tree, "scripts", "restore.py"),
+         bset, "--db", os.path.join(host, "noctua.db"),
+         "--config-dir", os.path.join(host, "config")],
+        env=renv, capture_output=True, text=True, timeout=120)
+    installed = os.path.exists(os.path.join(host, "config",
+                                            "users.json"))
+    # positive control: a legitimate set, fingerprint pinned
+    L = Boot(tree, "r10-legit-%s" % side).start()
+    L.stop()
+    bk2 = os.path.join(L.dir, "bk")
+    env2 = dict(L.env, NOCTUA_BACKUP_DIR=bk2, NOCTUA_JANUS_URL="")
+    r = subprocess.run([sys.executable, os.path.join(
+        tree, "scripts", "backup.py"), "--no-prune"], env=env2,
+        capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    lset = os.path.join(bk2, sorted(os.listdir(bk2))[-1])
+    fp = sent.pubkey_fingerprint(pub_pem(L.db))
+    host2 = os.path.join(WORK, "r10-host2-%s" % side)
+    shutil.rmtree(host2, ignore_errors=True)
+    os.makedirs(host2)
+    r2 = subprocess.run(
+        [sys.executable, os.path.join(tree, "scripts", "restore.py"),
+         lset, "--db", os.path.join(host2, "noctua.db"),
+         "--config-dir", os.path.join(host2, "config"),
+         "--pubkey-fingerprint", fp],
+        env=renv, capture_output=True, text=True, timeout=120)
+    ok = (r_atk.returncode != 0 and not installed
+          and r2.returncode == 0)
+    return ok, {"attacker_set_rc": r_atk.returncode,
+                "attacker_users_installed": installed,
+                "attacker_out": (r_atk.stdout
+                                 + r_atk.stderr).strip()[-200:],
+                "pinned_legit_rc": r2.returncode,
+                "pinned_legit_out": (r2.stdout
+                                     + r2.stderr).strip()[-200:]}
+
+
+# ------------------------------------------------------------------
+# R11 — evidence parity (seat 2 F10): a restore-orphaned bundle
+# enters the normal lifecycle — retention purges it and the
+# breach clears.
+# ------------------------------------------------------------------
+def r11_orphan(tree, side):
+    A = Boot(tree, "r11-%s" % side).start()
+    ev = os.path.join(A.dir, "evidence")
+    bk = os.path.join(A.dir, "backups")
+    try:
+        p = A.port
+        req(p, "POST", "/hotlist", SUP,
+            {"plate": "ORP100", "state": "AR",
+             "category": "stolen vehicle", "case": "2027-1014"})
+        s, b = req(p, "POST", "/reads", ING,
+                   {"plate": "ORP100", "state": "AR", "cam": "CAM-01"})
+        hit = b["hit_id"]
+        req(p, "POST", "/verify", DET,
+            {"hit_id": hit, "decision": "confirm", "case": "2027-1014"})
+        s, b = req(p, "POST", "/evidence/export", DET,
+                   {"hit_id": hit, "case_id": "2027-1014"})
+        assert s == 201, b
+    finally:
+        A.stop()
+    env = dict(A.env, NOCTUA_BACKUP_DIR=bk, NOCTUA_JANUS_URL="")
+    r = subprocess.run([sys.executable, os.path.join(
+        tree, "scripts", "backup.py"), "--no-prune"], env=env,
+        capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    bset = os.path.join(bk, sorted(os.listdir(bk))[-1])
+    A.start()
+    try:
+        time.sleep(1.2)
+        s, b = req(A.port, "POST", "/evidence/export", DET,
+                   {"hit_id": hit, "case_id": "2027-1014"})
+        assert s == 201, b
+        y = b["bundle"]
+    finally:
+        A.stop()
+    r = subprocess.run(
+        [sys.executable, os.path.join(tree, "scripts", "restore.py"),
+         bset, "--db", A.db, "--config-dir",
+         os.path.join(A.dir, "cfg")],
+        env=dict(os.environ, NOCTUA_AUDIT_KEY=AUDIT_KEY,
+                 NOCTUA_EVIDENCE_DIR=ev),
+        capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    old = time.time() - 20 * 86400
+    os.utime(os.path.join(ev, y), (old, old))
+    A.start()
+    try:
+        for job in ("retention", "checkpoint", "hotlist_sync",
+                    "backup", "witness"):
+            req(A.port, "POST", "/heartbeat", JOB,
+                {"job": job, "ok": True})
+        rr = A.script_run("retention.py", env_extra={
+            "NOCTUA_JANUS_URL": A.url, "NOCTUA_JOBS_USER": JOB,
+            "NOCTUA_JOBS_KEY": KEYS[JOB]})
+        s, h = req(A.port, "GET", "/health", SUP)
+        breach = (h.get("degraded") or {}).get("retention_breach")
+        gone = not os.path.isdir(os.path.join(ev, y))
+        ok = gone and not (breach and "evidence bundles" in breach)
+        return ok, {"orphan_bundle": y, "orphan_purged": gone,
+                    "breach_after_retention": breach,
+                    "retention_rc": rr.returncode}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# R12 — fence scope (seat 2 F12): a stale case feed closes data
+# READS, but safety writes proceed with a chained warning; the
+# refusal names the feed and its age. (Bounded by Q09: /hotlist
+# and /holds stay fenced — they are not safety writes.)
+# ------------------------------------------------------------------
+def r12_fence(tree, side):
+    A = Boot(tree, "r12-%s" % side)
+    with open(A.cases, "w") as f:
+        json.dump({"open_cases": list(CASES),
+                   "exported_ts": ago_iso(hours=72)}, f)
+    A.start()
+    try:
+        p = A.port
+        place = req(p, "POST", "/suppressions", SUP,
+                    {"plate": "SAFE123", "state": "AR",
+                     "order_ref": "PO-R12 (DEMO)"})
+        ingest = req(p, "POST", "/reads", ING,
+                     {"plate": "ANY999", "state": "AR",
+                      "cam": "CAM-01"})
+        hits = req(p, "GET", "/hits", DET)
+        err = (hits[1] or {}).get("error", "")
+        kinds = [r[0] for r in A.sql("SELECT kind FROM audit")]
+        ok = (place[0] == 201 and ingest[0] == 201
+              and hits[0] == 503 and "feed" in err
+              and "CONFIG_FEED_STALE_WRITE" in kinds)
+        return ok, {"place": place[0], "ingest": ingest[0],
+                    "get_hits": hits[0], "hits_error": err,
+                    "feed_warning_chained":
+                        "CONFIG_FEED_STALE_WRITE" in kinds}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# R13 — chain-growth attribution (seat 2 F8): SHARE_BLOCKED
+# chaining is throttled per authenticated identity, never keyed
+# on caller-supplied text; entries carry the caller's user.
+# ------------------------------------------------------------------
+def r13_flood(tree, side):
+    A = Boot(tree, "r13-%s" % side).start()
+    try:
+        p = A.port
+        n0 = A.sql("SELECT COUNT(*) FROM audit")[0][0]
+        for i in range(60):
+            req(p, "POST", "/share/query", PAT,
+                {"agency": "x-%d" % i, "plate_fragment": "ABC",
+                 "case_ref": "2027-1014", "why": "x", "tier": 2})
+        added = A.sql("SELECT COUNT(*) FROM audit")[0][0] - n0
+        rows = A.sql("SELECT payload FROM audit WHERE "
+                     "kind='SHARE_BLOCKED'")
+        attributed = any("ofc.chen" in (r[0] or "") for r in rows)
+        ok = added <= 3 and attributed
+        return ok, {"share_blocked_entries_added": added,
+                    "entries_attributed_to_caller": attributed}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# R14 — load envelope (MEASUREMENT; ChatGPT R6-05): the S18
+# two-writer stress (2 x 500 appends through two Chain objects on
+# one DB) under defined background load (CPU generators driving
+# loadavg toward ~6, the conditions of the builders' 320/322
+# run). Reports landed appends per tree; passes iff the tree
+# under test lands 1000/1000 with the chain verifying.
+# ------------------------------------------------------------------
+def r14_load(tree, side):
+    sent = load_sentinel(tree)
+    d = os.path.join(WORK, "r14-%s" % side)
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    dbp = os.path.join(d, "janus.db")
+    stop_load = threading.Event()
+
+    def burn():
+        x = 0
+        while not stop_load.is_set():
+            x += 1
+
+    burners = [threading.Thread(target=burn, daemon=True)
+               for _ in range(6)]
+    for t in burners:
+        t.start()
+    time.sleep(2)
+    try:
+        load1 = os.getloadavg()[0]
+        landed = []
+
+        def writer(tag):
+            conn = sqlite3.connect(dbp, timeout=60)
+            ch = sent.Chain(dbp, conn=conn)
+            n = 0
+            for i in range(500):
+                try:
+                    ch.append("HEARTBEAT", {"job": tag, "i": i})
+                    n += 1
+                except Exception:
+                    pass
+            landed.append(n)
+            conn.close()
+
+        t0 = time.time()
+        ts = [threading.Thread(target=writer, args=("w%d" % k,))
+              for k in range(2)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        dt = time.time() - t0
+    finally:
+        stop_load.set()
+    total = sum(landed)
+    ver = sent.verify_detached(dbp)
+    ok = total == 1000 and ver.get("ok") is True
+    return ok, {"landed": landed, "total": total,
+                "seconds": round(dt, 1),
+                "appends_per_s": round(total / dt, 1) if dt else None,
+                "loadavg_1m_at_start": round(load1, 2),
+                "chain_verifies": ver.get("ok")}
+
+
+# ------------------------------------------------------------------
+# R15 — honesty sweep: version strings, /health's migration
+# status + scrub-flag count, and the disposition-note clock cap
+# (Gemini M12: min(HOLD_DAYS + 30, 150)).
+# ------------------------------------------------------------------
+def r15_honesty(tree, side):
+    sent = load_sentinel(tree)
+    A = Boot(tree, "r15-%s" % side,
+             env_extra={"NOCTUA_HOLD_DAYS": "140"}).start()
+    try:
+        p = A.port
+        s, h = req(p, "GET", "/health", SUP)
+        version_ok = h.get("version") == "1.2.6"
+        registry_ok = h.get("registry_version") == "1.2.6" \
+            and sent.REGISTRY_VERSION == "1.2.6"
+        fields_ok = "migration_status" in h \
+            and "chain_scrub_flags" in h
+        # disposition-note cap: a note confirmed 155 days ago
+        # under HOLD_DAYS=140 — 1.2.3's clock is min(170, 150) =
+        # 150 days, so the note is past due; 1.2.2's uncapped 170
+        # excuses it.
+        req(p, "POST", "/hotlist", SUP,
+            {"plate": "DSP100", "state": "AR", "case": "2027-1014",
+             "category": "stolen vehicle"})
+        s, b = req(p, "POST", "/reads", ING,
+                   {"plate": "DSP100", "state": "AR", "cam": "CAM-01"})
+        hit = b["hit_id"]
+        req(p, "POST", "/verify", DET,
+            {"hit_id": hit, "decision": "confirm",
+             "case": "2027-1014"})
+        s, b = req(p, "POST", "/evidence/export", DET,
+                   {"hit_id": hit, "case_id": "2027-1014"})
+        assert s == 201, b
+        old = ago_iso(days=155)
+        # the UNCONFIRMED branch is the one whose clock R15 caps:
+        # disp_confirmed_ts NULL, destroyed_ts NULL, disp_ts aged
+        A.sql("UPDATE evidence SET disp_note='r15 probe', "
+              "disp_ts=?, disp_confirmed_ts=NULL WHERE hit_id=?",
+              (old, hit))
+        conn = sqlite3.connect(A.db)
+        breaches = sent.registry_breaches(conn, 14, 140,
+                                          db_path=A.db)
+        conn.close()
+        disp_breach = any("disp" in k for k in breaches)
+        ok = (version_ok and registry_ok and fields_ok
+              and disp_breach)
+        return ok, {"health_version": h.get("version"),
+                    "registry_version": h.get("registry_version"),
+                    "module_registry": sent.REGISTRY_VERSION,
+                    "health_fields": fields_ok,
+                    "disp_note_breach_flagged": disp_breach,
+                    "breaches": sorted(breaches)[:6]}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# R16 — late Round 6 finding (DeepSeek F3, orchestrator-verified):
+# a hit under protection survives retention, but its READS purged
+# on the plain reads clock — a later export/re-export produced a
+# bundle whose reads.json was empty (releasable but hollow).
+# 1.2.3: sentinel.read_deletable — a read referenced by a hit that
+# is not itself deletable inherits the hit's protection.
+# ------------------------------------------------------------------
+def r16_reads(tree, side):
+    A = Boot(tree, "r16-%s" % side,
+             env_extra={"RETENTION_DAYS": "14",
+                        "HOLD_DAYS": "14"}).start()
+    try:
+        p = A.port
+        req(p, "POST", "/hotlist", SUP,
+            {"plate": "HLD100", "state": "AR", "case": "2027-1014",
+             "category": "stolen vehicle"})
+        s, b = req(p, "POST", "/reads", ING,
+                   {"plate": "HLD100", "state": "AR", "cam": "CAM-01"})
+        hit, rid = b["hit_id"], b["read_id"]
+        req(p, "POST", "/verify", DET,
+            {"hit_id": hit, "decision": "confirm", "case": "2027-1014"})
+        s, b = req(p, "POST", "/evidence/export", DET,
+                   {"hit_id": hit, "case_id": "2027-1014"})
+        assert s == 201, b
+        ev = os.path.join(A.dir, "evidence")
+        reads1 = json.load(open(os.path.join(
+            ev, b["bundle"], "reads.json")))
+        s, b = req(p, "POST", "/holds", SUP,
+                   {"scope": "hit", "ref": hit, "case": "2027-1014",
+                    "reason": "litigation (DEMO)"})
+        assert s == 201, b
+        # Age hit + read 20 days: past the 14-day reads AND hits
+        # classes. The hold is fresh, so PROTECTION — not youth —
+        # is what keeps the hit; on 1.2.2 the read still purges.
+        old = ago_iso(days=20)
+        A.sql("UPDATE reads SET ts=? WHERE id=?", (old, rid))
+        A.sql("UPDATE hits SET ts=? WHERE id=?", (old, hit))
+        rr = A.script_run("retention.py", env_extra={
+            "NOCTUA_JANUS_URL": A.url, "NOCTUA_JOBS_USER": JOB,
+            "NOCTUA_JOBS_KEY": KEYS[JOB],
+            "RETENTION_DAYS": "14", "HOLD_DAYS": "14"})
+        reads_left = A.sql("SELECT COUNT(*) FROM reads WHERE id=?",
+                           (rid,))[0][0]
+        hit_left = A.sql("SELECT COUNT(*) FROM hits WHERE id=?",
+                         (hit,))[0][0]
+        s, b = req(p, "POST", "/evidence/export", DET,
+                   {"hit_id": hit, "case_id": "2027-1014"})
+        assert s == 201, b
+        reads2 = json.load(open(os.path.join(
+            ev, b["bundle"], "reads.json")))
+        ok = (hit_left == 1 and reads_left == 1
+              and len(reads1) >= 1 and len(reads2) >= 1)
+        return ok, {"hit_survives": hit_left == 1,
+                    "reads_survive": reads_left == 1,
+                    "first_export_reads": len(reads1),
+                    "reexport_reads": len(reads2),
+                    "retention_rc": rr.returncode}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# R16/F5 — DeepSeek F5 confirmation: 1.2.2's migration MERGE of
+# two legacy orders on one plate dropped the duplicate order's
+# order_ref/case_no. 1.2.3's R1/R2 rebuild keeps per-order
+# records, so both orders' fields survive migration intact.
+# ------------------------------------------------------------------
+def r16_order_fields(tree, side):
+    d = os.path.join(WORK, "r16f-%s" % side)
+    shutil.rmtree(d, ignore_errors=True)
+    B = Boot(FIX11, "r16f-%s" % side, dirpath=d).start()
+    try:
+        p = B.port
+        for st, ref, case in (("TX", "PO-A-TX (DEMO)", "2027-1001"),
+                              ("AR", "PO-B-AR (DEMO)", "2027-1014")):
+            s, b = req(p, "POST", "/suppressions", SUP,
+                       {"plate": "DUO888", "state": st,
+                        "order_ref": ref, "case": case})
+            assert s in (200, 201), b
+    finally:
+        B.stop()
+    U = Boot(tree, "r16f-%s" % side, dirpath=d).start()
+    try:
+        rows = U.sql("SELECT order_ref, case_no FROM suppressions "
+                     "WHERE active=1 ORDER BY order_ref")
+        pairs = sorted((r[0], r[1]) for r in rows)
+        ok = pairs == [("PO-A-TX (DEMO)", "2027-1001"),
+                       ("PO-B-AR (DEMO)", "2027-1014")]
+        return ok, {"active_order_fields": pairs}
+    finally:
+        U.stop()
+
+
+CASES_TABLE = [
+    ("R1-native-orders-are-records", r1_native, False),
+    ("R1-migrated-orders-are-records", r1_migrated, False),
+    ("R2-migration-per-item-isolation", r2_migration, False),
+    ("R2-no-dml-on-locked-boot", r2_receipts, False),
+    ("R3-pin-ceremony-on-real-dbs", r3_pin, False),
+    ("R4-no-out-of-lock-side-effects", r4_race, False),
+    ("R5a-sink-burst-regression", r5_sink, True),
+    ("R5b-sink-twin-no-duplicate", r5_twin, False),
+    ("R6-rotation-ceremony", r6_rotation, False),
+    ("R7-compact-anchoring", r7_compact, False),
+    ("R8-one-verification", r8_verify, False),
+    ("R9-supersede-completeness", r9_supersede, False),
+    ("R10-restore-trust-root", r10_restore, False),
+    ("R11-evidence-parity", r11_orphan, False),
+    ("R12-fence-scope", r12_fence, False),
+    ("R13-chain-growth-attribution", r13_flood, False),
+    ("R14-load-envelope", r14_load, True),
+    ("R15-honesty-sweep", r15_honesty, False),
+    ("R16-reads-inherit-hit-protection", r16_reads, False),
+    ("R16-order-fields-preserved", r16_order_fields, False),
+]
+
+
+def main():
+    print("R battery: test=%s baseline=%s" % (TEST_TREE, BASE_TREE))
+    for name, fn, measurement in CASES_TABLE:
+        if ONLY and ONLY not in name:
+            continue
+        if measurement and name.startswith("R5a"):
+            # regression-mode: must pass on the test tree; the
+            # baseline result is reported for the record (the
+            # property held on 1.2.2 in the in-lock shape — the
+            # discriminating R5 evidence is R5b + the round-6 leg)
+            try:
+                t_ok, t_det = fn(TEST_TREE, "test")
+            except Exception as exc:
+                t_ok, t_det = False, {"exception": repr(exc)[:400]}
+            try:
+                b_ok, b_det = fn(BASE_TREE, "base")
+            except Exception as exc:
+                b_ok, b_det = False, {"exception": repr(exc)[:400]}
+            report(name, t_ok, {"baseline_122": {"ok": b_ok,
+                                                 "detail": b_det},
+                                "test_123": {"ok": t_ok,
+                                             "detail": t_det},
+                                "mode": "regression"})
+        elif measurement:
+            run_case(name, fn, measurement=True)
+        else:
+            run_case(name, fn)
+    failed = [n for n, ok in RESULTS if not ok]
+    print("=" * 60)
+    print("R battery: %d/%d cases pass" % (len(RESULTS) - len(failed),
+                                          len(RESULTS)))
+    if failed:
+        print("FAILED: %s" % ", ".join(failed))
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
