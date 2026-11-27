@@ -109,6 +109,10 @@ Every access goes through one front door (**Janus**): named individual accounts 
 
 This design was put through a hostile review by four AI systems before any of it was shown to anyone (see `council/`). Their unanimous verdict: proceed with the Commission and the gated pilot; do not authorize operational replacement yet; and do not oversell what is proven. The fixes they forced — including two defects found in this code and repaired the same day (plate text in the audit chain; deletions that weren't erased at the file layer) — are folded into spec v2 and the current deploy package. The rounds that followed (3–9 and Security Round 1) kept finding real defects in successive builds; the record is published in full so any reader can check that claim round by round.
 
-## License and reuse
+## License
+
+The NOCTUA code in this repository is licensed under the **GNU Affero General Public License v3 (AGPLv3)** — see [`LICENSE`](LICENSE) for the full text. The AGPL's copyleft, including its network-use clause, means anyone who distributes the code or runs a modified version as a network service must offer that version's source under the same license: no one can close it and sell it back.
+
+The license covers the code only. It does **not** license the NOCTUA name or the owl mark, which are reserved to the project's distributing steward, The Stoic Opposition. Forks are welcome under the AGPL, but a fork may not call itself NOCTUA or use the owl.
 
 Built for public reuse by any city asking the same questions. Read the spec's source notes before quoting any figure: other cities' numbers are reported figures, not quotes, and Cabot's cost figures are qualified planning estimates, not bids.
