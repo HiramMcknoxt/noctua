@@ -365,3 +365,80 @@ failed sign-ins, the hardware-key path, sign-out, the health
 snapshot, and the Demo/Clean round-trip — 55/55 passed with zero
 page errors. The full record is in the presentation kit's handoff
 (`~/workspace/noctua-1.0/presentation/HANDOFF.md`).
+
+## 2026-11-27 — draft 9: presentation build, Claude QA fixes applied
+
+File: `console-draft-2026-11-27-5.html` (single self-contained HTML
+file; open it in any browser). Draft 8 after an independent
+click-through audit by a Claude seat (Opus 5.5, Medium), which walked
+every flow and returned PRESENTABLE WITH FIXES: 3 blockers, 15
+should-fixes, and five watch-list rulings. All of them are applied
+here, plus the nits. No design or feature changes; drafts 1–8 are
+untouched, and no audit rows were added or renumbered — the cited
+entries (#88405, #88412) still point at the same events.
+
+**What changed.**
+
+- **Clean view is clean now.** The Demo/Clean toggle used to leave
+  sample state behind: the "Oldest waiting" stat, per-camera reads,
+  the ingest rate, the audit stats, the Tier 3 badge, and quick-search
+  results all kept showing demo numbers in Clean. All are zeroed or
+  neutralized in Clean and restored on return, live audit entries
+  chained while in Clean stay visible there, and the Health view no
+  longer reads as a live deployment — its subhead now says
+  "Simulated posture of a fictional deployment" and the footer build
+  string is `1.2.8-demo`.
+- **Card headers tell the truth after a release.** Completing the
+  answer-key release now recounts the Suppressions and Evidence Holds
+  card badges ("3 active" / "2 active") instead of leaving them stale
+  next to a row that says Released.
+- **Refusals look like refusals.** Toasts carried a ✓ even when the
+  system was refusing — a blocked release, a missing case number, a
+  failed gate. Refusals and gates now carry a warning glyph; the
+  Export and New-suppression toasts say plainly "not available in
+  this demo", and every hit panel's Record source is prefixed
+  "Sample:" so no fictional case reads as a real agency record.
+- **The two-key rules hold under probing.** Signing out now refuses
+  console actions until someone signs in (nothing silently acts as
+  the previous operator); a detective can no longer accept the
+  D-118 divergence — acceptance requires a supervisor, and the
+  refusal is chained; a hardware-key tap no longer carries across
+  operators when the sign-in picker changes; the same person can now
+  actually attempt both keys, so the chained refusal the answer key
+  promises is reachable in both orders; Escape inside a nested
+  sign-in closes only the sign-in; and double-clicking Approve (or a
+  disposition) can no longer duplicate entries.
+- **Escalation no longer loops the message.** After escalating
+  D-118, the blocked-release strings used to tell the presenter to
+  "accept or escalate first" — including right after escalating.
+  They now say the fence stands until D-118 is accepted by a second
+  supervisor, noting that escalation keeps the fence up.
+- **Search respects its own controls.** Quick search now filters by
+  the camera selector, its label says "Full plate" (matching is
+  exact), and a result for a hit already dispositioned no longer
+  says "see Hits Queue". The Tier 3 form validates its From/To
+  dates, names the missing field when it refuses, and clears after a
+  successful submit.
+- **The numbers reconcile (watch-list rulings).** The checkpoint
+  table's on-file entry count is 88,408 — the head it names is the
+  hash after #88408 — with the row marked "advances +1" and the text
+  noting the counts "differ only by the checkpoint entry itself".
+  Retention reads 14 days everywhere it appears (the Tier 3 default
+  window now starts Nov 12, and the pending request whose window
+  reaches past retention is annotated as held). Ingest is
+  "≈13 reads / min (today's average)" — 512/min contradicted the
+  day's 18,442 reads — and the per-camera last-hour counts are
+  divided by ~10 to match. The Cameras card says "6 of 14 shown",
+  and the Audit subtitle calls the listing what it is: an excerpt.
+
+**Verification.** The draft-8 click-through harness was extended
+with assertions for each fixed behavior (85 checks in total: the
+original 55, two updated where a fix intentionally changed behavior
+— the Key 2 picker is enabled by design now, and the harness signs
+back in before the health snapshot because signed-out actions are
+refused) and re-run against this build in a headless browser:
+85/85 passed, zero page errors. Static greps: zero "NOCTUA",
+zero "30-day", zero "512 reads". The full record is in the
+presentation kit's fix-pass handoff
+(`~/workspace/noctua-1.0/presentation/HANDOFF-DRAFT9.md`); the seat's
+report is `~/workspace/noctua-1.0/presentation/claude-qa-report.md`.
