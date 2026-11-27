@@ -67,3 +67,41 @@ plate image and vehicle that generated the alert) from the **hotlist
 entry** (the plate and description the system is watching for), so it is
 not obvious at a glance which plate is the read and which is the wanted
 listing. That fix is in build now and will land as the next dated draft.
+
+## 2026-11-26 — draft 2: the comparison-panels fix
+
+File: `console-draft-2026-11-26-2.html` (single self-contained HTML file;
+open it in any browser).
+
+**What changed.** Every hit is now split into the two things an operator
+is actually comparing, side by side, so the camera read can never again
+be mistaken for the listing it matched:
+
+- **1 — What the camera saw.** The camera frame for the alert, with a
+  **Whole vehicle / Plate close-up** toggle; the plate as the camera read
+  it; and the vehicle, camera location, time, and read confidence behind
+  the read.
+- **2 — What's on file in the system.** The watchlist plate, labeled as
+  the plate being looked for; the vehicle on file; why it is wanted; and
+  the source the listing came from.
+- **How they compare.** A match bar under the two panels states the
+  comparison in plain language — whether the plate the camera read
+  matches the plate the system is looking for, and whether the vehicle
+  matches too.
+- **Dispatch dialog.** The Confirm & Dispatch confirmation repeats the
+  same side-by-side comparison, and its attestation now reads **"I
+  compared the camera side (left) with the record on file (right)"** —
+  the operator attests to the comparison itself, not just to the read.
+
+**Why.** This came straight out of Corey's hands-on test of draft 1: the
+dispatch dialog showed one description and one plate number, and he
+could not tell whether that plate was the one the camera had read or the
+one the system was looking for. A verification step whose two sides are
+indistinguishable makes the attestation meaningless, so the two sides
+are now unmistakable at a glance — in the hit rows and again in the
+dialog at the moment of dispatch.
+
+Everything else from draft 1 carries over unchanged: the six surfaces,
+the Tier 3 gate, two-key release, the Demo / Clean toggle, the rounded
+styling, and the hovering owl mark. Still a design prototype on
+synthetic sample data, awaiting Corey's hands-on feel test.
