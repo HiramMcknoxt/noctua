@@ -245,3 +245,46 @@ gold-on-dark-navy mark:
 - **Open Graph title, description, and image** (the 512 owl), so a
   shared link previews with the owl and the console's name instead of
   a placeholder letter.
+
+## 2026-11-27 — draft 6: sign-ins, not name-pickers
+
+File: `console-draft-2026-11-27-2.html` (single self-contained HTML
+file; open it in any browser). The change from draft 5 is who the
+console believes you are: the name-pickers are gone, replaced by
+simulated sign-ins. Everything else — the A/B dispatch dialog, the
+answer-key fence walk, the "What gets logged" panel, the roadside
+photos, the owl icon — is draft 5 unchanged. The file grows slightly
+to 1,702,855 bytes; still no external assets beyond the Google Fonts
+stylesheets.
+
+**What changed.** Playing the earlier drafts, Corey caught the hole
+in the ceremony: asked how two users log in at the same time to turn
+their keys, he said "It feels like I can just pick a name and do it."
+He was right — the two-key flows let you choose whose name turned the
+key from a dropdown, so the demo taught the choreography without the
+identity check that makes it mean anything. Now the key that turns is
+whoever is *signed in*:
+
+- **Three demo accounts.** The answer key on Suppressions & Holds
+  lists Keller, Osei, and Alvarez, each with a demo password and the
+  6-digit authenticator code their app would generate — printed on
+  purpose, because this is sample data. In the real system the
+  password is secret and the code comes only from that person's own
+  authenticator app or hardware key.
+- **A sign-in dialog guards the keys.** Accepting divergence D-118
+  and turning either key of a two-key release first opens a sign-in:
+  pick the operator, enter *their* password plus their TOTP code —
+  or take the simulated FIDO2 hardware-key tap instead. A hint under
+  the dialog shows the selected operator's demo credentials.
+- **Key 2 cannot be Key 1's person.** Sign in for the second key as
+  the operator who turned the first and the sign-in is refused — two
+  keys means two people, enforced the same way the real control
+  enforces it.
+- **Keller still cannot accept D-118.** The fence is holding Keller's
+  own checkpoint disagreement; signing in as Keller to accept it is
+  refused. The acceptance has to come from a different supervisor.
+- **Every attempt is chained.** Each sign-in, failed attempt, and
+  refusal is written live to the Audit Log — the chain records the
+  refused attempts too, not just the successes. A session pill in the
+  sidebar shows who is signed in and offers Switch user / Sign out;
+  switching and signing out are logged as well.
