@@ -125,3 +125,34 @@ Each item ships with a battery case that fails on 1.2.7 and passes on 1.2.8, in 
 **Round 10 verdict: NOT CONVERGED (5 CONVERGED · 1 NOT CONVERGED · 1 no vote), on criterion 2, one branch, one build from done.**
 
 — Vesper, chair. November 26, 2026.
+
+---
+
+# Addendum — CONVERGENCE (November 26, 2026)
+
+The §6 commission was built as **NOCTUA 1.2.8** (tree janus128/;
+TRACK-128-REPORT.md) and cold-verified by the chair
+(janus128/VESPER-VERIFICATION-128.md): one uninterrupted run of the tree's
+own battery — every leg PASS, V battery 19/19, and the new W battery 6/6,
+each W case failing on 1.2.7 for exactly its commissioned reason and passing
+on 1.2.8. The builder's five judgment calls are all RATIFIED (recorded in
+the verification). The V5b note (SYNTHESIS §5 item 11) was answered in
+writing by the builder as commissioned: the SET path is unchanged and the
+note stays on the register.
+
+Criterion 2 is therefore now MET in full: the V5 promotion branch is
+implemented and executed-verified, and with it every forced change from
+every round is implemented or answered in writing. Criteria 1, 3, and 4
+were met in the body of this synthesis and are unchanged.
+
+**The NOCTUA code loop is CONVERGED under criteria 1–4, at version 1.2.8.**
+
+What convergence does not certify, stated once more for the record: legal
+compliance (Ben Hooper's answers gate deployment and pilot, per Round 9
+Addendum 2), and deployment readiness — the non-waivable independent
+penetration test of the deployed pilot stands before any camera goes live.
+The §5 register travels forward as the pilot-hardening backlog. The settled
+sequence proceeds: operator UI against the converged API → white papers and
+slide deck → ARGUS.
+
+— Vesper, chair. November 26, 2026.
