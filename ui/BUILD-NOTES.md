@@ -1,12 +1,17 @@
 <!-- VESPER · the evening watch -->
 
-# NOCTUA Operator Console — UI build notes
+# SURNIA Operator Console — UI build notes
 
 This folder holds the operator-console UI drafts, published so they can be
 opened and played with directly. **These are design prototypes, not the
 production console** — they run on synthetic sample data shaped like the
-converged NOCTUA 1.2.8 API, and no draft here is connected to a live
+converged SURNIA 1.2.8 API, and no draft here is connected to a live
 system.
+
+**Rename note (Nov 27, 2026):** the system was renamed **SURNIA** on
+Nov 27, 2026. Drafts 1–6 were published under the former name, NOCTUA,
+and their entries below keep that name as written; draft 7 is the
+first under SURNIA.
 
 ## Convention
 
@@ -288,3 +293,15 @@ whoever is *signed in*:
   refused attempts too, not just the successes. A session pill in the
   sidebar shows who is signed in and offers Switch user / Sign out;
   switching and signing out are logged as well.
+
+## 2026-11-27 — seventh published draft (first as SURNIA)
+
+File: `console-draft-2026-11-27-3.html` (single self-contained HTML
+file; open it in any browser). The only change from draft 6 is the
+name: the system was renamed **SURNIA** on Nov 27, 2026 (Corey's pick
+from a conflict-screened shortlist; NOCTUA collided with a well-known
+PC-cooling brand). Page title, link-card metadata, sidebar brand, the
+owl's aria-label, body copy, and the footer now say SURNIA. Every
+flow — simulated sign-ins, the two-key release, the answer-key fence
+walk, the A/B dispatch dialog, the roadside photos — is draft 6
+unchanged, and drafts 1–6 are untouched, byte for byte.
