@@ -105,3 +105,47 @@ Everything else from draft 1 carries over unchanged: the six surfaces,
 the Tier 3 gate, two-key release, the Demo / Clean toggle, the rounded
 styling, and the hovering owl mark. Still a design prototype on
 synthetic sample data, awaiting Corey's hands-on feel test.
+
+## 2026-11-26 — draft 3: the dispatch-dialog repair
+
+File: `console-draft-2026-11-26-3.html` (single self-contained HTML file;
+open it in any browser).
+
+**What changed.** Draft 2 put the comparison panels in the hit rows, but
+its Confirm & Dispatch dialog still opened on a single merged box — one
+plate, one description, and no camera image anywhere — even though the
+attestation asked the operator to confirm they had verified the read
+"against the camera image." Corey screenshotted it and asked the only
+question that matters: **"what am I comparing this to?"** The dialog
+itself is now the comparison:
+
+- **An explicit explainer opens the dialog** — "What you are comparing" —
+  stating in plain language that confirming a dispatch means comparing
+  two different things, and naming them before either is shown.
+- **A — Camera photo.** The actual camera frame that generated the
+  alert, with the **Whole vehicle / Plate close-up** toggle, and the
+  plate read from that photo.
+- **B — Hotlist record.** The record the system matched against: the
+  plate being looked for — labeled, in the panel, **not a camera read** —
+  plus the make/model on file and why it is wanted.
+- **An A-vs-B divider** separates the two panels so the eye can never
+  merge them into one record.
+- **The match bar is rewritten** in the same A/B terms, stating how A
+  and B compare.
+- **The attestation checkbox names A vs B**: the operator ticks that
+  they compared **A (the camera photo, left)** against **B (the hotlist
+  record, right)** — the attestation finally describes the act it
+  certifies.
+- **Queue panels relabeled** to the same A/B terms, so the vocabulary is
+  identical from the queue row through the dialog to the attestation.
+
+**Why.** A verification dialog that shows only one side of the
+comparison — and references an image it does not display — asks for an
+attestation it does not support. Draft 2 fixed the queue and carried
+the old dialog along; this draft fixes the dialog, which is where the
+attestation actually happens.
+
+Everything else carries over from draft 2: the six surfaces, the Tier 3
+gate, two-key release, the Demo / Clean toggle, the rounded styling,
+and the hovering owl mark. Still a design prototype on synthetic sample
+data, awaiting Corey's hands-on feel test.
