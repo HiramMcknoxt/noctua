@@ -1,0 +1,1444 @@
+# .orig-127 — the pre-1.2.8 V battery, preserved under R-F
+# before the 1.2.8 adaptation. The only adaptation is in
+# _v15f_version_residues: the sentinel_audit version literal
+# 1.2.7 -> 1.2.8 (the literal follows the shipping build, the
+# same rule the 1.2.7 bump applied to run_tests.py). No case
+# logic or assertion differs.
+#!/usr/bin/env python3
+#  ___
+# (o o)   VESPER · the evening watch
+# (   )   Vesper, for Corey Spangler — Cabot, Arkansas
+#  ^^^
+"""V battery — the 1.2.7 acceptance cases (council round 9).
+
+Each case runs against the TEST tree (janus127) and the BASELINE
+tree (janus126) and passes only when the invariant HOLDS on the
+test tree and does NOT hold on the baseline (the discrimination
+standard of the Q/R/S/T/U batteries). Cases are keyed to the
+commission items in council9/SYNTHESIS.md section 6:
+
+  V1  pickup lockout scope: the key-verified predicate lives
+      inside _auth_lock_note_failure; wrong-key pickup attempts
+      are AUTH_FAIL evidence only; the pickup lock reply is the
+      uniform refusal
+  V2  a non-supervisor hot-list submission never mutates a live
+      row (the alert still fires; the answer stays uniform 202)
+  V3  sink truncation is tail-only: a mid-file welded line is a
+      named divergence, entries after it are never deleted, the
+      torn tail is archived and the recorded seq is the true one
+  V4  the U9 redesign: unprovisioned = ceremony state everywhere
+      (fencing is the mechanism); NOCTUA_LAB=1 carries fixtures,
+      is chained and named, and refuses a provisioned install;
+      the born-empty marker and legacy probe are retired
+  V5  fence auto-clear is reason-gated (a checkpoint_disagreement
+      clears only via accepted ids / the two-key accept) and the
+      fence transition is atomic with its chain entry
+  V6  restore's outgoing-provisioned read is a tri-state;
+      "unknown" is treated as provisioned (the flip materializes)
+  V7  the pre-restore registry glob covers every artifact
+      restore writes (wal/shm/key snapshots prune and flag)
+  V8  auth-failure accounting is bounded: exact totals for
+      configured accounts, unknown usernames in fixed buckets,
+      flushed markers pruned on bucket rollover
+  V9  /holds/release and /suppressions/release are out of the
+      anchor fence's safety set
+  V10 BLOCKED payloads carry keyed href: hit references (verify
+      and evidence-refusal paths)
+  V11 an expired pickup clears its pending entry and secret
+      (PICKUP_EXPIRED chained); lockout counting excludes
+      store_unavailable, and must_reenroll counts only when a
+      code was actually presented
+  V12 users.json writers use unique temp paths (pickup rotation,
+      provision.py save)
+  V13 evidence export refuses uniformly to non-supervisors
+      (nonexistent / suppressed / unverified are one answer)
+  V14 no code: the legacy-chain probe is retired (V4) — the case
+      asserts the retirement; the reasoning is in TRACK-127
+  V15 smalls bundle: collision-proof sink archive names,
+      bounded stranded lists, 30-day pending-submission expiry,
+      escrow pruned only with its paired set, checkpoint.py's
+      non-object tail line, the signing boot comment's code
+      (checked via the fence it implies — see v9), sentinel_audit
+      version, migration stamp field semantics
+  V16 (Addendum 1, Gemini F4) sink_divergence() names an
+      unreadable sink: every committed seq is stranded, so the
+      resolution ceremony is reachable for that state
+  V17 (Addendum 1, Gemini F5) _auth_locked() performs no
+      out-of-lock write: the shell-unlock path pops memory only;
+      the persisted lock row is untouched by the read path
+  V18 (Addendum 1, Gemini F6) compact.py carries PER-SIDE TOTP
+      secrets (partner / auditor), and machine-role receipt
+      posts carry no TOTP header
+
+Usage: python3 tests/run_v127_cases.py [test_tree] [baseline_tree]
+       [name-filter]
+"""
+import importlib.util
+import json
+import os
+import shutil
+import sqlite3
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+TEST_TREE = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 \
+    else os.path.dirname(HERE)
+BASE_TREE = os.path.abspath(sys.argv[2]) if len(sys.argv) > 2 \
+    else os.path.join(os.path.dirname(TEST_TREE), "janus126")
+ONLY = sys.argv[3] if len(sys.argv) > 3 else None
+
+
+def _load(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+T = _load("t_battery_harness", os.path.join(HERE, "run_t125_cases.py"))
+Boot, req, audit_kinds = T.Boot, T.req, T.audit_kinds
+_enroll, _totp, step = T._enroll, T._totp, T.step
+_req_totp, ingest, run_checkpoint = T._req_totp, T.ingest, T.run_checkpoint
+DET, PAT, SUP, SUP2, AUD, CA, ING, JOB = (T.DET, T.PAT, T.SUP,
+                                         T.SUP2, T.AUD, T.CA,
+                                         T.ING, T.JOB)
+KEYS = T.KEYS
+WORK = os.path.join(TEST_TREE, "scratch", "v-battery")
+os.makedirs(WORK, exist_ok=True)
+RESULTS = []
+
+
+def report(name, ok, detail):
+    RESULTS.append((name, ok))
+    print("CASE %s %s :: %s" % (name, "PASS" if ok else "FAIL",
+                                json.dumps(detail)[:1600]))
+    sys.stdout.flush()
+
+
+def run_unit(tree, code, env_extra=None):
+    """Run a python snippet against a tree's modules in a
+    subprocess; the snippet prints one JSON object. Returns
+    (rc, parsed-or-None, raw_stdout, stderr_tail)."""
+    d = os.path.join(WORK, "unit-%d" % (abs(hash(code)) % 99999))
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    path = os.path.join(d, "unit.py")
+    with open(path, "w") as f:
+        f.write(code)
+    env = dict(os.environ)
+    env.update({"NOCTUA_DB": os.path.join(d, "u.db"),
+                "NOCTUA_AUDIT_KEY": "v-battery-audit-key",
+                "NOCTUA_SENTINEL_SINK": os.path.join(d, "sink.log"),
+                "PYTHONPATH": tree})
+    if env_extra:
+        env.update(env_extra)
+    r = subprocess.run([sys.executable, path], env=env,
+                       capture_output=True, text=True, timeout=600)
+    parsed = None
+    for line in reversed(r.stdout.strip().splitlines()):
+        try:
+            parsed = json.loads(line)
+            break
+        except ValueError:
+            continue
+    return r.returncode, parsed, r.stdout, r.stderr[-400:]
+
+
+def audit_payloads(A, kind):
+    try:
+        return [json.loads(r[0]) for r in A.sql(
+            "SELECT payload FROM audit WHERE kind=?", (kind,))]
+    except Exception:
+        return []
+
+
+def _latest_set(backups_root):
+    sets = sorted(x for x in os.listdir(backups_root)
+                  if x.startswith("backup-"))
+    return os.path.join(backups_root, sets[-1]) if sets else None
+
+
+def _wait_unfenced(A, timeout=20):
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        s, _b = req(A.port, "GET", "/hits", DET)
+        last = s
+        if s != 503:
+            return True, s
+        time.sleep(0.5)
+    return False, last
+
+
+def _wait_fenced(A, timeout=20):
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        s, _b = req(A.port, "GET", "/hits", DET)
+        last = s
+        if s == 503:
+            return True, s
+        time.sleep(0.5)
+    return False, last
+
+
+def _enroll_three(A):
+    """Enroll DET, SUP, AUD (the u7 pattern) and return
+    (secrets, fresh) where fresh(user) mints a usable code."""
+    det_secret, det_codes, r = _enroll(A, DET)
+    sup_secret, _sc, r = _enroll(A, SUP, confirm_by=DET,
+                                 confirm_code=det_codes[0])
+    aud_secret, _ac, r = _enroll(A, AUD, confirm_by=DET,
+                                 confirm_code=det_codes[1])
+    if not (det_secret and sup_secret and aud_secret):
+        return None, None
+    secrets = {DET: det_secret, SUP: sup_secret, AUD: aud_secret}
+    _used = {}
+
+    def fresh(user):
+        while True:
+            cur = step()
+            use = _used.get(user, cur)
+            if use < cur:
+                use = cur
+            if use <= cur + 1:
+                break
+            time.sleep(1)
+        _used[user] = use + 1
+        return _totp(secrets[user], use)
+
+    for user in (DET, SUP, AUD):
+        s, _b = _req_totp(A.port, user, fresh(user))
+        assert s == 200, (user, s)
+    return secrets, fresh
+
+
+# ------------------------------------------------------------------
+# V1 — pickup lockout scope + uniform lock reply
+# ------------------------------------------------------------------
+def v1_pickup_lockout(tree, side):
+    """Spraying /auth/2fa/pickup with a WRONG key and a human's
+    username locks nobody (the failure is AUTH_FAIL evidence
+    only): the target still authenticates with key + code
+    afterwards. And when an account IS locked (by genuine
+    post-key failures), the pickup refusal is the uniform
+    "authentication failed" — it does not disclose the lock."""
+    A = Boot(tree, "v1-%s" % side).start()
+    try:
+        p = A.port
+        secrets, fresh = _enroll_three(A)
+        if not secrets:
+            return False, {"enroll": "failed"}
+
+        def pickup(user, key, tok=None):
+            headers = {"X-Noctua-User": user, "X-Noctua-Key": key}
+            if tok is not None:
+                headers["X-Noctua-Pickup-Token"] = tok
+            return req(p, "POST", "/auth/2fa/pickup", None,
+                       {"user": user}, headers=headers)
+
+        spray = [pickup(DET, "wrong-key-%d" % i)[0] for i in range(6)]
+        s, _b = _req_totp(p, DET, fresh(DET))
+        after_spray = s
+        # genuine lock: five bad codes after a verified key
+        bad = [_req_totp(p, DET, "999999")[0] for _ in range(5)]
+        s, b = pickup(DET, KEYS[DET])
+        lock_reply = b.get("error")
+        ok = (all(x == 401 for x in spray) and after_spray == 200
+              and lock_reply == "authentication failed")
+        return ok, {"spray_statuses": spray,
+                    "auth_after_spray": after_spray,
+                    "bad_code_statuses": bad,
+                    "pickup_lock_reply": lock_reply}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# V2 — a submission never mutates a live row
+# ------------------------------------------------------------------
+def v2_submission_vs_live(tree, side):
+    """A supervisor lists a plate directly. A detective then
+    "submits" the same plate/case with a different category: the
+    live row must be byte-identical afterwards (category,
+    added_by, pending), the answer is the uniform 202, and the
+    plate still matches on ingest (the alert path is the live
+    row's, not the submission's)."""
+    A = Boot(tree, "v2-%s" % side).start()
+    try:
+        p = A.port
+        s, b = req(p, "POST", "/hotlist", SUP,
+                   {"plate": "V2A111", "state": "AR",
+                    "category": "stolen vehicle", "case": "2027-1031"})
+        direct = s
+        before = A.sql("SELECT category, added_by, pending, active "
+                       "FROM hotlist_members WHERE plate='V2A111'")
+        s1, b1 = req(p, "POST", "/hotlist", DET,
+                     {"plate": "V2B222", "state": "AR",
+                      "category": "felony warrant",
+                      "case": "2027-1031"})
+        fresh_shape = (s1, json.dumps(b1, sort_keys=True))
+        s2, b2 = req(p, "POST", "/hotlist", DET,
+                     {"plate": "V2A111", "state": "AR",
+                      "category": "felony warrant",
+                      "case": "2027-1031"})
+        after = A.sql("SELECT category, added_by, pending, active "
+                      "FROM hotlist_members WHERE plate='V2A111'")
+        s3, b3 = ingest(p, "V2A111")
+        hits = A.sql("SELECT COUNT(*) FROM hits WHERE entry_plate="
+                     "'V2A111'")
+        ok = (direct == 201 and s2 == 202
+              and (s2, json.dumps(b2, sort_keys=True)) == fresh_shape
+              and before == after
+              and before == [("stolen vehicle", SUP, 0, 1)]
+              and hits and hits[0][0] >= 1)
+        return ok, {"direct": direct, "fresh_submission": s1,
+                    "live_submission": s2, "row_before": before,
+                    "row_after": after, "hits": hits}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# V3 — sink truncation is tail-only; mid-file damage diverges
+# ------------------------------------------------------------------
+_V3_CODE = r"""
+import json, os, sys
+sys.path.insert(0, os.environ["PYTHONPATH"])
+import sentinel
+out = {}
+db, sink = os.environ["NOCTUA_DB"], os.environ["NOCTUA_SENTINEL_SINK"]
+ch = sentinel.Chain(db)
+for i in range(10):
+    ch.append("TEST", {"n": i})
+lines = open(sink).read().splitlines()
+# weld entries 4 and 5 into one unparseable line; tear the final
+# line (entry 10's own bytes — the torn tail is archived by the
+# truncation path, so 10 is not expected in the live file; the
+# invariant is that the VALID entries after the weld survive)
+welded = lines[:3] + [lines[3] + lines[4]] + lines[5:]
+welded[-1] = welded[-1][:len(welded[-1]) // 2]
+with open(sink, "w") as f:
+    f.write("\n".join(welded) + "\n")
+ch.append("TEST", {"n": 10})
+seqs = []
+for line in open(sink):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        seqs.append(json.loads(line)["seq"])
+    except Exception:
+        pass
+st = ch.sink_status()
+out = {"seqs_in_file": seqs,
+       "after_weld_survive": all(s in seqs for s in (6, 7, 8, 9)),
+       "status_ok": st["ok"],
+       "diverged": st.get("diverged_seqs"),
+       "last_error": st.get("last_error")}
+print(json.dumps(out))
+"""
+
+
+def v3_sink_mid_damage(tree, side):
+    """The round-9 shape, executed by two seats on 1.2.6: valid
+    entries, a welded line mid-file, valid entries, a torn final
+    line. 1.2.6's truncation cut at the weld and deleted the
+    valid entries after it. 1.2.7 names the mid-file damage a
+    divergence and deletes nothing."""
+    rc, out, _raw, err = run_unit(tree, _V3_CODE)
+    ok = (rc == 0 and out
+          and out.get("after_weld_survive") is True
+          and out.get("status_ok") is False
+          and 4 in (out.get("diverged") or []))
+    return ok, {"unit": out, "rc": rc, "stderr": err[-300:]}
+
+
+# ------------------------------------------------------------------
+# V4 — the ceremony state (U9 redesign)
+# ------------------------------------------------------------------
+def v4_ceremony_state(tree, side):
+    """(a) A born-empty install's database, COPIED to a new host
+    with data in it, serves no human data surface there: the
+    gate is provisioning, not a marker the copy carries. Ingest
+    stays open; /health names the ceremony state. (b) The same
+    install under NOCTUA_LAB=1 serves (the declared fixture
+    posture). (c) NOCTUA_LAB=1 on a PROVISIONED install refuses
+    the boot."""
+    A = Boot(tree, "v4a-%s" % side).start()
+    d1 = A.dir
+    ingest(A.port, "V4A111")
+    A.stop()
+    d2 = os.path.join(WORK, "v4b-%s" % side)
+    shutil.rmtree(d2, ignore_errors=True)
+    shutil.copytree(d1, d2)
+    B = Boot(tree, "v4b-%s" % side, dirpath=d2,
+             env_extra={"NOCTUA_LAB": "0"}).start()
+    try:
+        p = B.port
+        s, _b = req(p, "GET", "/hits", DET)
+        fenced = s
+        s, _b = ingest(p, "V4B222")
+        ingest_open = s
+        s, hb = req(p, "GET", "/health", JOB)
+        state = (hb.get("totp") or {}).get("state")
+        s, _b = req(p, "POST", "/suppressions", SUP,
+                    {"plate": "V4A111", "order_ref": "PO-V4"})
+        safety_open = s
+    finally:
+        B.stop()
+    C = Boot(tree, "v4c-%s" % side, dirpath=d2,
+             env_extra={"NOCTUA_LAB": "1"}).start()
+    try:
+        s, _b = req(C.port, "GET", "/hits", DET)
+        lab_serves = s
+    finally:
+        C.stop()
+    # (c) provisioned + LAB refuses: enroll on a fresh install,
+    # then reboot it under the flag
+    D = Boot(tree, "v4d-%s" % side).start()
+    secret, _codes, r = _enroll(D, DET)
+    D.stop()
+    refused = False
+    detail = ""
+    if secret:
+        E = Boot(tree, "v4d-%s" % side, dirpath=D.dir,
+                 env_extra={"NOCTUA_LAB": "1"})
+        try:
+            E.start()
+            E.stop()
+        except RuntimeError as exc:
+            refused = True
+            detail = str(exc)[:200]
+    ok = (fenced == 503 and ingest_open in (200, 201)
+          and state == "ceremony" and safety_open in (200, 201)
+          and lab_serves == 200 and refused)
+    return ok, {"copied_db_hits": fenced, "ingest": ingest_open,
+                "totp_state": state, "safety_write": safety_open,
+                "lab_serves": lab_serves,
+                "lab_on_provisioned_refused": refused,
+                "refusal_evidence": detail}
+
+
+# ------------------------------------------------------------------
+# V5 — fence auto-clear is reason-gated
+# ------------------------------------------------------------------
+def v5_fence_reason_gate(tree, side):
+    """A genuine checkpoint_disagreement whose disagreeing line
+    is DELETED from the local file does NOT auto-clear: the
+    fence stands until the two-key anchor-accept clears it. A
+    torn-line (file-state) mismatch still auto-clears on repair,
+    with ANCHOR_CLEARED chained."""
+    A = Boot(tree, "v5-%s" % side).start()
+    B = Boot(tree, "v5x-%s" % side).start()
+    try:
+        p = A.port
+        ingest(p, "V5A111")
+        run_checkpoint(A)
+        ingest(B.port, "V5B999")
+        run_checkpoint(B)
+        cp_path = A.db + ".checkpoints.jsonl"
+        good = open(cp_path).read()
+        foreign = open(B.db + ".checkpoints.jsonl").read()
+        with open(cp_path, "a") as f:
+            f.write(foreign)
+        fenced, _s = _wait_fenced(A)
+        # the operator deletes the disagreeing line — the
+        # evidence leaves the local file
+        with open(cp_path, "w") as f:
+            f.write(good)
+        time.sleep(7)  # past the 5s evaluation cadence
+        s, _b = req(p, "GET", "/hits", DET)
+        after_delete = s
+        # two-key accept: supervisor records, auditor confirms
+        s1, _b = req(p, "POST", "/audit/anchor-accept", SUP, {})
+        s2, _b = req(p, "POST", "/audit/anchor-accept", AUD, {})
+        cleared, after_accept = _wait_unfenced(A)
+        # file-state leg: a torn final line fences, repair clears
+        with open(cp_path, "a") as f:
+            f.write('{"seq": 99, "root": "abc')
+        fenced2, _s = _wait_fenced(A)
+        with open(cp_path, "w") as f:
+            f.write(good)
+        cleared2, after_repair = _wait_unfenced(A)
+        kinds = audit_kinds(A)
+        ok = (fenced and after_delete == 503 and cleared
+              and fenced2 and cleared2
+              and "ANCHOR_CLEARED" in kinds)
+        return ok, {"disagreement_fenced": fenced,
+                    "after_delete": after_delete,
+                    "accept_statuses": (s1, s2),
+                    "after_accept": after_accept,
+                    "torn_fenced": fenced2,
+                    "after_repair": after_repair,
+                    "anchor_cleared_chained": "ANCHOR_CLEARED" in kinds}
+    finally:
+        A.stop()
+        B.stop()
+
+
+# ------------------------------------------------------------------
+# V5b — the fence transition is atomic with its chain entry
+# ------------------------------------------------------------------
+_V5B_CODE = r"""
+import json, os, sys
+d = os.path.dirname(os.environ["NOCTUA_DB"])
+users = [{"user": "det.okafor", "role": "detective",
+          "key_sha256": "x" * 64}]
+for name, obj in (("users.json", users),
+                  ("cases.json", {"open_cases": ["2027-1001"]}),
+                  ("cameras.json", {"cameras": ["CAM-01"]})):
+    with open(os.path.join(d, name), "w") as f:
+        json.dump(obj, f)
+os.environ.update({
+    "NOCTUA_USERS": os.path.join(d, "users.json"),
+    "NOCTUA_CASES": os.path.join(d, "cases.json"),
+    "NOCTUA_CAMERAS": os.path.join(d, "cameras.json"),
+    "NOCTUA_PORT": "0"})
+sys.path.insert(0, os.environ["PYTHONPATH"])
+import janus
+out = {}
+# a recorded file-state mismatch stands in meta
+janus._meta_set("anchor_mismatch", json.dumps(
+    {"reason": "checkpoints_malformed", "detected": "2027-01-01"}))
+janus.db.commit()
+real_append = janus.chain.append
+def boom(*a, **k):
+    raise RuntimeError("injected chain failure")
+janus.chain.append = boom
+try:
+    # clear path: a recorded mismatch + a clean evaluation +
+    # a failing append = the record must STAND
+    janus._anchor_apply(False, {})
+    out["clear_aborted"] = janus._meta_get("anchor_mismatch") is not None
+    # set path: no record + a mismatch evaluation + a failing
+    # append = no record may land
+    janus.db.execute("DELETE FROM meta WHERE key='anchor_mismatch'")
+    janus.db.commit()
+    janus._anchor_apply(True, {"reason": "checkpoints_missing"})
+    out["set_aborted"] = janus._meta_get("anchor_mismatch") is None
+finally:
+    janus.chain.append = real_append
+out["record_reason"] = "checkpoints_malformed"
+print(json.dumps(out))
+"""
+
+
+def v5b_fence_atomicity(tree, side):
+    """With chain.append forced to fail, _anchor_apply changes
+    NOTHING: a clear does not land unchained, and a set does not
+    land unchained (1.2.6 committed the meta change first and
+    swallowed the append failure)."""
+    rc, out, _raw, err = run_unit(tree, _V5B_CODE)
+    ok = (rc == 0 and out and out.get("clear_aborted") is True
+          and out.get("set_aborted") is True)
+    return ok, {"unit": out, "rc": rc, "stderr": err[-300:]}
+
+
+# ------------------------------------------------------------------
+# V6 — restore outgoing tri-state
+# ------------------------------------------------------------------
+def v6_restore_unknown(tree, side):
+    """The outgoing install's database is CORRUPT at the moment
+    restore reads its provisioning state. The read cannot be
+    made, so the marker says "unknown" and Janus treats the
+    incoming install as provisioned: must_reenroll materializes
+    and key-only auth refuses. (1.2.6 read the failure as
+    never-provisioned and skipped the flip.)"""
+    L = Boot(tree, "v6L-%s" % side).start()
+    secret, _codes, r = _enroll(L, DET)
+    if not secret:
+        return False, {"enroll_rc": r.returncode}
+    # one real authentication, so the install's provisioned
+    # marker is recorded in meta (need_auth observes the
+    # enrollment and marks it) before the corruption below
+    s, _b = _req_totp(L.port, DET, _totp(secret, step()))
+    if s != 200:
+        return False, {"post_enroll_auth": s}
+    L.stop()
+    I = Boot(tree, "v6I-%s" % side).start()
+    ingest(I.port, "V6I333")
+    I.stop()
+    store = L.db + ".totp.json"
+    if os.path.exists(store):
+        os.remove(store)
+    i_backups = os.path.join(I.dir, "backups")
+    r = I.script_run("backup.py",
+                     env_extra={"NOCTUA_BACKUP_DIR": i_backups})
+    if r.returncode != 0:
+        return False, {"backup_rc": r.returncode}
+    # the outgoing database is corrupt when restore reads it:
+    # the WAL sidecars go too — a hot WAL's frames shadow the
+    # main file's first pages and would mask the corruption
+    for suffix in ("-wal", "-shm"):
+        if os.path.exists(L.db + suffix):
+            os.remove(L.db + suffix)
+    with open(L.db, "wb") as f:
+        f.write(b"not a sqlite database at all" * 64)
+    r = L.script_run("restore.py", _latest_set(i_backups),
+                     "--db", L.db,
+                     "--pubkey", I.db + ".signing_pub.pem")
+    restore_rc = r.returncode
+    marker = {}
+    if os.path.exists(L.db + ".restore_marker"):
+        marker = json.load(open(L.db + ".restore_marker"))
+    M = Boot(tree, "v6L-%s" % side, dirpath=L.dir).start()
+    try:
+        s, _b = req(M.port, "GET", "/stats", DET)
+        key_only = s
+        s, hb = req(M.port, "GET", "/health", JOB)
+        totp = hb.get("totp") or {}
+        ok = (restore_rc == 0
+              and marker.get("outgoing_provisioned") == "unknown"
+              and key_only == 401
+              and (totp.get("must_reenroll") or 0) >= 1
+              and totp.get("state") == "provisioned")
+        return ok, {"restore_rc": restore_rc,
+                    "marker_outgoing": marker.get(
+                        "outgoing_provisioned"),
+                    "key_only": key_only,
+                    "must_reenroll": totp.get("must_reenroll"),
+                    "totp_state": totp.get("state")}
+    finally:
+        M.stop()
+
+
+# ------------------------------------------------------------------
+# V7 — the pre-restore registry covers every artifact
+# ------------------------------------------------------------------
+def v7_registry_prune(tree, side):
+    """Restore's full artifact set — the DB copy, the WAL and
+    SHM copies, and the audit/signing key snapshots — aged past
+    the reads class: retention prunes ALL of them. (1.2.6's glob
+    matched only the DB copy; four plate/key-bearing files
+    survived every run.)"""
+    # a real boot first, so the database carries Janus's full
+    # schema (retention reads tables a bare Chain never creates)
+    A = Boot(tree, "v7-%s" % side).start()
+    A.stop()
+    d = A.dir
+    stamp = "20260101T000000Z"
+    names = ["janus.db.pre-restore-" + stamp,
+             "janus.db-wal.pre-restore-" + stamp,
+             "janus.db-shm.pre-restore-" + stamp,
+             "janus.db.audit_key.pre-restore-" + stamp,
+             "janus.db.signing_key.pem.pre-restore-" + stamp]
+    old = time.time() - 40 * 86400
+    for n in names:
+        p = os.path.join(d, n)
+        with open(p, "w") as f:
+            f.write("aged artifact")
+        os.utime(p, (old, old))
+    r = A.script_run("retention.py")
+    remaining = [n for n in names if os.path.exists(os.path.join(d, n))]
+    ok = (r.returncode == 0 and remaining == [])
+    return ok, {"retention_rc": r.returncode,
+                "remaining": remaining,
+                "tail": (r.stdout + r.stderr)[-200:]}
+
+
+# ------------------------------------------------------------------
+# V8 — bounded auth-failure accounting
+# ------------------------------------------------------------------
+_V8_CODE = r"""
+import json, os, sys
+d = os.path.dirname(os.environ["NOCTUA_DB"])
+users = [{"user": "det.okafor", "role": "detective",
+          "key_sha256": "x" * 64}]
+for name, obj in (("users.json", users),
+                  ("cases.json", {"open_cases": ["2027-1001"]}),
+                  ("cameras.json", {"cameras": ["CAM-01"]})):
+    with open(os.path.join(d, name), "w") as f:
+        json.dump(obj, f)
+os.environ.update({
+    "NOCTUA_USERS": os.path.join(d, "users.json"),
+    "NOCTUA_CASES": os.path.join(d, "cases.json"),
+    "NOCTUA_CAMERAS": os.path.join(d, "cameras.json"),
+    "NOCTUA_PORT": "0"})
+sys.path.insert(0, os.environ["PYTHONPATH"])
+import janus
+for i in range(50000):
+    janus._note_auth_fail("spray-%d" % i)
+janus._note_auth_fail("det.okafor")
+out = {"totals_len": len(janus._auth_fail_totals),
+       "configured_exact": janus._auth_fail_totals.get(
+           janus._user_hash("det.okafor")) == 1,
+       "unknown_buckets": sum(1 for k in janus._auth_fail_totals
+                              if k.startswith("unknown:"))}
+# flushed-marker pruning: seed stale markers from an old bucket,
+# then one fresh failure must sweep them
+for i in range(5000):
+    janus._auth_fail_flushed.add(("spray-%d" % i, 1))
+janus._note_auth_fail("det.okafor")
+out["flushed_len_after"] = len(janus._auth_fail_flushed)
+print(json.dumps(out))
+"""
+
+
+def v8_fail_totals_bound(tree, side):
+    """50,000 distinct sprayed usernames leave the failure
+    totals BOUNDED (configured accounts exact + at most 64
+    unknown buckets), and stale flushed markers are swept on
+    the next failure. 1.2.6 grew one totals entry per sprayed
+    name (~100 bytes each, forever) and never pruned markers."""
+    rc, out, _raw, err = run_unit(tree, _V8_CODE)
+    ok = (rc == 0 and out and out.get("totals_len", 99999) <= 65
+          and out.get("configured_exact") is True
+          and out.get("unknown_buckets", 0) <= 64
+          and out.get("flushed_len_after", 99999) < 100)
+    return ok, {"unit": out, "rc": rc, "stderr": err[-300:]}
+
+
+# ------------------------------------------------------------------
+# V9 — releases are out of the fence's safety set
+# ------------------------------------------------------------------
+_V9_CODE = r"""
+import json, os, sys
+d = os.path.dirname(os.environ["NOCTUA_DB"])
+users = [{"user": "det.okafor", "role": "detective",
+          "key_sha256": "x" * 64}]
+for name, obj in (("users.json", users),
+                  ("cases.json", {"open_cases": ["2027-1001"]}),
+                  ("cameras.json", {"cameras": ["CAM-01"]})):
+    with open(os.path.join(d, name), "w") as f:
+        json.dump(obj, f)
+os.environ.update({
+    "NOCTUA_USERS": os.path.join(d, "users.json"),
+    "NOCTUA_CASES": os.path.join(d, "cases.json"),
+    "NOCTUA_CAMERAS": os.path.join(d, "cameras.json"),
+    "NOCTUA_PORT": "0"})
+sys.path.insert(0, os.environ["PYTHONPATH"])
+import janus
+out = {"safety_set": sorted(janus.ANCHOR_FENCE_SAFETY_POST)}
+print(json.dumps(out))
+"""
+
+
+def v9_safety_set(tree, side):
+    """The safety set keeps the protective writes (/reads,
+    /suppressions, /holds) and loses both RELEASES. The HTTP leg
+    proves the dispatch consequence: during an anchor fence a
+    supervisor's hold release is refused 503 like any other data
+    write (1.2.6 let it through as a "safety" write)."""
+    rc, out, _raw, err = run_unit(tree, _V9_CODE)
+    safety = (out or {}).get("safety_set") or []
+    set_ok = ("/holds/release" not in safety
+              and "/suppressions/release" not in safety
+              and "/holds" in safety and "/suppressions" in safety)
+    A = Boot(tree, "v9-%s" % side).start()
+    try:
+        p = A.port
+        ingest(p, "V9A111")
+        run_checkpoint(A)
+        cp_path = A.db + ".checkpoints.jsonl"
+        with open(cp_path, "a") as f:
+            f.write('{"seq": 99, "root": "abc')
+        fenced, _s = _wait_fenced(A)
+        s, _b = req(p, "POST", "/holds/release", SUP,
+                    {"hit_id": 1})
+        release_status = s
+        ok = set_ok and fenced and release_status == 503
+        return ok, {"unit": out, "rc": rc,
+                    "fenced": fenced,
+                    "release_during_fence": release_status}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# V10 — BLOCKED payloads carry keyed hit references
+# ------------------------------------------------------------------
+def v10_blocked_hit_ref(tree, side):
+    """A detective's refused verify (bad case) and refused
+    evidence export (suppressed hit) chain BLOCKED entries that
+    name the hit ONLY by its keyed href: reference — never the
+    raw id a partner chain reader could join to the ALERT
+    entry's camera and timestamp."""
+    A = Boot(tree, "v10-%s" % side).start()
+    try:
+        p = A.port
+        s, _b = req(p, "POST", "/hotlist", SUP,
+                    {"plate": "V10A111", "state": "AR",
+                     "category": "stolen vehicle",
+                     "case": "2027-1031"})
+        s, b = ingest(p, "V10A111")
+        hit_id = b.get("hit_id")
+        # refused verify: a case the gate rejects
+        s, _b = req(p, "POST", "/verify", DET,
+                    {"hit_id": hit_id, "decision": "confirm",
+                     "case": "1999-9999"})
+        verify_refusal = s
+        # suppress the plate post-hoc, then a refused export
+        s, _b = req(p, "POST", "/suppressions", SUP,
+                    {"plate": "V10A111", "order_ref": "PO-V10"})
+        s, _b = req(p, "POST", "/evidence/export", DET,
+                    {"hit_id": hit_id, "case_id": "2027-1031"})
+        export_refusal = s
+        blocked = audit_payloads(A, "BLOCKED")
+        mine = [pl for pl in blocked
+                if pl.get("action") in ("hit verification",
+                                        "evidence export")]
+        keyed = bool(mine) and all(
+            str(pl.get("hit_ref", "")).startswith("href:")
+            and "hit" not in pl for pl in mine)
+        ok = (verify_refusal == 403 and export_refusal in (403, 409)
+              and keyed)
+        return ok, {"hit_id": hit_id,
+                    "verify_refusal": verify_refusal,
+                    "export_refusal": export_refusal,
+                    "blocked_payloads": mine}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# V11 — pickup expiry clears the secret; lockout scope narrowed
+# ------------------------------------------------------------------
+def v11_pickup_expiry_scope(tree, side):
+    """(a) A pickup whose window has expired takes its pending
+    entry — secret included — with it: the store no longer
+    carries the entry and PICKUP_EXPIRED is chained. (b) A
+    must_reenroll account presenting NO code accrues no lockout,
+    and a corrupt store (store_unavailable) locks nobody: after
+    six attempts each, /health's locked list is empty."""
+    A = Boot(tree, "v11-%s" % side).start()
+    try:
+        p = A.port
+        secrets, fresh = _enroll_three(A)
+        if not secrets:
+            return False, {"enroll": "failed"}
+        # (a) mint a pickup for DET, then age it past the window
+        s, _b = req(p, "POST", "/auth/2fa/reenroll", SUP,
+                    {"user": DET},
+                    headers={"X-Noctua-TOTP": fresh(SUP)})
+        s, b = req(p, "POST", "/auth/2fa/reenroll", AUD,
+                   {"user": DET},
+                   headers={"X-Noctua-TOTP": fresh(AUD)})
+        token = b.get("pickup_token")
+        store_path = A.db + ".totp.json"
+        store = json.load(open(store_path))
+        from datetime import datetime, timedelta, timezone
+        aged = (datetime.now(timezone.utc)
+                - timedelta(hours=25)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        store[DET]["enrolled_ts"] = aged
+        with open(store_path, "w") as f:
+            json.dump(store, f)
+        headers = {"X-Noctua-User": DET, "X-Noctua-Key": KEYS[DET],
+                   "X-Noctua-Pickup-Token": token or ""}
+        s, _b = req(p, "POST", "/auth/2fa/pickup", None,
+                    {"user": DET}, headers=headers)
+        expired_status = s
+        store_after = json.load(open(store_path))
+        entry_gone = DET not in store_after
+        kinds = audit_kinds(A)
+        # (b) AUD's entry is flipped to must_reenroll in the
+        # store; six key-only attempts presenting NO code must
+        # not accrue a lockout for AUD
+        store = json.load(open(store_path))
+        store[AUD]["status"] = "must_reenroll"
+        with open(store_path, "w") as f:
+            json.dump(store, f)
+        nocode = [req(p, "GET", "/stats", AUD)[0] for _ in range(6)]
+        s, hb = req(p, "GET", "/health", JOB)
+        locked = (hb.get("degraded", {}).get("auth_fail", {})
+                  .get("locked_accounts"))
+        ok = (expired_status == 401 and entry_gone
+              and "PICKUP_EXPIRED" in kinds
+              and all(x == 401 for x in nocode)
+              and locked == [])
+        return ok, {"expired_pickup_status": expired_status,
+                    "entry_gone": entry_gone,
+                    "pickup_expired_chained": "PICKUP_EXPIRED" in kinds,
+                    "nocode_statuses": nocode,
+                    "locked_accounts": locked}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# V12 — users.json writers use unique temp paths
+# ------------------------------------------------------------------
+_V12_CODE = r"""
+import importlib.util, json, os, sys
+tree = os.environ["PYTHONPATH"]
+spec = importlib.util.spec_from_file_location(
+    "provision_v12", os.path.join(tree, "scripts", "provision.py"))
+prov = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(prov)
+d = os.path.dirname(os.environ["NOCTUA_DB"])
+path = os.path.join(d, "users.json")
+seen = []
+real_replace = os.replace
+def spy(src, dst):
+    seen.append(src)
+    return real_replace(src, dst)
+os.replace = spy
+try:
+    for _ in range(3):
+        prov.save(path, [{"user": "x", "role": "detective",
+                          "key_sha256": "y"}])
+finally:
+    os.replace = real_replace
+janus_src = open(os.path.join(tree, "janus.py")).read()
+out = {"tmp_paths": seen,
+       "all_unique": len(seen) == 3 and len(set(seen)) == 3,
+       "none_fixed": all(not s.endswith("users.json.tmp")
+                         for s in seen),
+       "janus_fixed_tmp_gone": 'USERS_PATH + ".tmp"' not in janus_src}
+print(json.dumps(out))
+"""
+
+
+def v12_users_tmp_unique(tree, side):
+    """provision.py's save() writes through a UNIQUE temp path
+    per call (observed via an os.replace spy), and janus.py's
+    pickup rotation no longer names the fixed USERS_PATH + ".tmp"
+    (1.2.6 wrote both through the one fixed temp — the torn-write
+    shape U11(iv) fixed for the TOTP store)."""
+    rc, out, _raw, err = run_unit(tree, _V12_CODE)
+    ok = (rc == 0 and out and out.get("all_unique") is True
+          and out.get("none_fixed") is True
+          and out.get("janus_fixed_tmp_gone") is True)
+    return ok, {"unit": out, "rc": rc, "stderr": err[-300:]}
+
+
+# ------------------------------------------------------------------
+# V13 — evidence export refuses uniformly to non-supervisors
+# ------------------------------------------------------------------
+def v13_evidence_uniform(tree, side):
+    """To a detective, exporting a nonexistent hit, a suppressed
+    hit, and an unverified hit are ONE refusal — byte-identical
+    409 bodies in /verify's shape. A supervisor keeps the
+    distinct, informative answers."""
+    A = Boot(tree, "v13-%s" % side).start()
+    try:
+        p = A.port
+        s, _b = req(p, "POST", "/hotlist", SUP,
+                    {"plate": "V13A111", "state": "AR",
+                     "category": "stolen vehicle",
+                     "case": "2027-1031"})
+        s, b = ingest(p, "V13A111")
+        hit_id = b.get("hit_id")
+
+        def export(user, hid):
+            return req(p, "POST", "/evidence/export", user,
+                       {"hit_id": hid, "case_id": "2027-1031"})
+
+        s_unv, b_unv = export(DET, hit_id)
+        s_non, b_non = export(DET, 999999)
+        s, _b = req(p, "POST", "/suppressions", SUP,
+                    {"plate": "V13A111", "order_ref": "PO-V13"})
+        s_sup, b_sup = export(DET, hit_id)
+        bodies = {json.dumps(x, sort_keys=True)
+                  for x in (b_unv, b_non, b_sup)}
+        s_supv, b_supv = export(SUP, hit_id)
+        uniform = (s_unv == s_non == s_sup == 409 and len(bodies) == 1
+                   and b_unv.get("error")
+                   == "hit not found or already decided")
+        # the supervisor carve-out: the distinct, informative
+        # answer survives for the role allowed to hear it
+        ok = (uniform and s_supv in (403, 409)
+              and b_supv.get("error")
+              != "hit not found or already decided")
+        return ok, {"unverified": (s_unv, b_unv),
+                    "nonexistent": (s_non, b_non),
+                    "suppressed": (s_sup, b_sup),
+                    "supervisor_suppressed": (s_supv, b_supv)}
+    finally:
+        A.stop()
+
+
+# ------------------------------------------------------------------
+# V14 — the legacy-chain probe is retired (no code; see TRACK-127)
+# ------------------------------------------------------------------
+def v14_probe_retired(tree, side):
+    """V14 is answered in writing in TRACK-127-REPORT: the
+    1.2.4-era probe keyed the U9 exemption on the first payload's
+    v2 marker rather than the TOTP era its rationale cited —
+    moot once V4 retired the probe as a gating mechanism. The
+    case asserts the retirement in the source: no probe, no
+    born-empty marker read or write."""
+    src = open(os.path.join(tree, "janus.py")).read()
+    # code patterns, not words: the retirement comments in
+    # 1.2.7's source legitimately NAME what was retired
+    ok = ("_DB_LEGACY_CHAIN_AT_IMPORT =" not in src
+          and "def _unprovisioned_locked" not in src
+          and '_meta_set("install_born_empty"' not in src
+          and '_meta_get("install_born_empty")' not in src)
+    return ok, {"probe_retired": ok}
+
+
+# ------------------------------------------------------------------
+# V15 — smalls bundle
+# ------------------------------------------------------------------
+_V15A_CODE = r"""
+import importlib.util, json, os, sqlite3, sys
+tree = os.environ["PYTHONPATH"]
+spec = importlib.util.spec_from_file_location(
+    "checkpoint_v15", os.path.join(tree, "scripts", "checkpoint.py"))
+cp_mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cp_mod)
+d = os.path.dirname(os.environ["NOCTUA_DB"])
+out_path = os.path.join(d, "cps.jsonl")
+good = {"date": "2027-01-01", "ts": "2027-01-01T00:00:00Z",
+        "root": "GENESIS", "entries": 0, "agency": "Cabot PD"}
+with open(out_path, "w") as f:
+    f.write(json.dumps(good) + "\n")
+    f.write("42\n")
+db = sqlite3.connect(os.environ["NOCTUA_DB"])
+db.execute("CREATE TABLE IF NOT EXISTS audit(seq INTEGER PRIMARY KEY, hash TEXT)")
+db.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)")
+out = {}
+try:
+    out["refusal"] = cp_mod._refuse_if_rewritten(db, out_path)
+    out["raised"] = None
+except Exception as exc:
+    out["refusal"] = None
+    out["raised"] = type(exc).__name__
+out["file_after"] = open(out_path).read()
+print(json.dumps(out))
+"""
+
+
+def _v15a_checkpoint_tail(tree):
+    rc, out, _raw, err = run_unit(tree, _V15A_CODE)
+    ok = (rc == 0 and out and out.get("raised") is None
+          and out.get("refusal") is None
+          and "42" not in (out.get("file_after") or ""))
+    return ok, {"unit": out, "rc": rc, "stderr": err[-200:]}
+
+
+_V15B_CODE = r"""
+import json, os, sys
+sys.path.insert(0, os.environ["PYTHONPATH"])
+import sentinel
+from datetime import datetime, timezone
+db, sink = os.environ["NOCTUA_DB"], os.environ["NOCTUA_SENTINEL_SINK"]
+ch = sentinel.Chain(db)
+for i in range(3):
+    ch.append("TEST", {"n": i})
+stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+marker = "%s.diverged-%s" % (sink, stamp)
+with open(marker, "w") as f:
+    f.write("FIRST ARCHIVE")
+with open(sink, "w") as f:
+    f.write("garbage\n")
+res = ch.resolve_sink_divergence()
+out = {"marker_intact": open(marker).read() == "FIRST ARCHIVE",
+       "archived": (res or {}).get("archived_sink"),
+       "marker_name": os.path.basename(marker)}
+print(json.dumps(out))
+"""
+
+
+def _v15b_archive_collision(tree):
+    rc, out, _raw, err = run_unit(tree, _V15B_CODE)
+    ok = (rc == 0 and out and out.get("marker_intact") is True
+          and out.get("archived")
+          and out.get("archived") != out.get("marker_name"))
+    return ok, {"unit": out, "rc": rc, "stderr": err[-200:]}
+
+
+def _v15c_pending_expiry(tree, side):
+    A = Boot(tree, "v15c-%s" % side).start()
+    try:
+        p = A.port
+        s, _b = req(p, "POST", "/hotlist", DET,
+                    {"plate": "V15C111", "state": "AR",
+                     "category": "felony warrant",
+                     "case": "2027-1031"})
+        submitted = s
+        s, b = req(p, "GET", "/hotlist/pending", SUP)
+        rows = b.get("entries") or b.get("pending") or []
+        if not rows:
+            return False, {"queue_after_submit": b}
+        entry_id = rows[0]["id"]
+        A.sql("UPDATE hotlist_members SET added_ts="
+              "'2026-01-01T00:00:00Z' WHERE rowid=?", (entry_id,))
+        s, b = req(p, "GET", "/hotlist/pending", SUP)
+        rows_after = b.get("entries") or b.get("pending") or []
+        s, _b = req(p, "POST", "/hotlist/approve", SUP,
+                    {"id": entry_id})
+        approve_status = s
+        kinds = audit_kinds(A)
+        ok = (submitted == 202 and rows_after == []
+              and approve_status == 404
+              and "HOTLIST_PENDING_EXPIRED" in kinds)
+        return ok, {"submitted": submitted,
+                    "queue_after_ageing": rows_after,
+                    "approve_expired": approve_status,
+                    "expired_chained": "HOTLIST_PENDING_EXPIRED"
+                    in kinds}
+    finally:
+        A.stop()
+
+
+def _v15d_stranded_cap(tree, side):
+    sinkdir = os.path.join(WORK, "v15d-%s" % side)
+    shutil.rmtree(sinkdir, ignore_errors=True)
+    os.makedirs(sinkdir)
+    sink = os.path.join(sinkdir, "sink.log")
+    A = Boot(tree, "v15d-%s" % side,
+             env_extra={"NOCTUA_SENTINEL_SINK": sink}).start()
+    # plain reads chain nothing; supervisor hot-list adds chain
+    # one entry each — 60 of them make a chain worth stranding
+    for i in range(60):
+        req(A.port, "POST", "/hotlist", SUP,
+            {"plate": "V15D%03d" % i, "state": "AR",
+             "category": "stolen vehicle", "case": "2027-1031"})
+    # delivery is a background pass: wait until the mirror
+    # actually holds the entries before damaging it
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        try:
+            n = sum(1 for _ in open(sink))
+        except OSError:
+            n = 0
+        if n >= 61:
+            break
+        time.sleep(0.5)
+    A.stop()
+    # the mirror loses everything past entry 5 while the server
+    # is down; the next delivery after reboot names the stranded
+    # seqs (56 of them) for the resolution ceremony
+    lines = open(sink).read().splitlines()
+    with open(sink, "w") as f:
+        f.write("\n".join(lines[:5]) + "\n")
+    B = Boot(tree, "v15d-%s" % side, dirpath=A.dir,
+             env_extra={"NOCTUA_SENTINEL_SINK": sink}).start()
+    try:
+        req(B.port, "POST", "/hotlist", SUP,
+            {"plate": "V15D999", "state": "AR",
+             "category": "stolen vehicle", "case": "2027-1031"})
+        s, b = req(B.port, "POST", "/audit/sink-divergence-accept",
+                   SUP, {})
+        accept_status = s
+        payloads = audit_payloads(B, "SINK_DIVERGENCE_ACCEPTED")
+        pl = payloads[-1] if payloads else {}
+        ok = (accept_status == 200
+              and len(pl.get("stranded_seqs") or []) <= 50
+              and (pl.get("stranded_count") or 0) > 50
+              and bool(pl.get("stranded_sha256")))
+        return ok, {"accept_status": accept_status,
+                    "payload_stranded_len": len(
+                        pl.get("stranded_seqs") or []),
+                    "payload_count": pl.get("stranded_count")}
+    finally:
+        B.stop()
+
+
+def _v15e_escrow_pairing(tree, side):
+    d = os.path.join(WORK, "v15e-%s" % side)
+    shutil.rmtree(d, ignore_errors=True)
+    os.makedirs(d)
+    db = os.path.join(d, "janus.db")
+    sent = T.load_sentinel(tree)
+    env = dict(os.environ)
+    env.update({"NOCTUA_DB": db, "NOCTUA_AUDIT_KEY": "v15e-key",
+                "NOCTUA_SENTINEL_SINK": os.path.join(d, "sink.log")})
+    old_env = dict(os.environ)
+    os.environ.update(env)
+    try:
+        ch = sent.Chain(db)
+        ch.append("TEST", {"n": 1})
+    finally:
+        os.environ.clear()
+        os.environ.update(old_env)
+    for name in ("users.json", "cases.json", "cameras.json"):
+        with open(os.path.join(d, name), "w") as f:
+            json.dump({}, f)
+    out_root = os.path.join(d, "backups")
+    escrow_root = os.path.join(d, "key-escrow")
+    os.makedirs(out_root)
+    os.makedirs(escrow_root)
+    from datetime import datetime, timedelta, timezone
+    old_stamp = (datetime.now(timezone.utc)
+                 - timedelta(days=40)).strftime("%Y%m%dT%H%M%SZ")
+    orphan_stamp = (datetime.now(timezone.utc)
+                    - timedelta(days=41)).strftime("%Y%m%dT%H%M%SZ")
+    # an archival set retained under a suffixed name, its escrow
+    arch_set = os.path.join(out_root,
+                            "backup-%s.archived" % old_stamp)
+    os.makedirs(arch_set)
+    with open(os.path.join(arch_set, "manifest.json"), "w") as f:
+        f.write("{}")
+    arch_escrow = os.path.join(escrow_root,
+                               "key-escrow-%s" % old_stamp)
+    os.makedirs(arch_escrow)
+    # an escrow whose set is simply gone (prunes on both builds)
+    gone_escrow = os.path.join(escrow_root,
+                               "key-escrow-%s" % orphan_stamp)
+    os.makedirs(gone_escrow)
+    benv = dict(os.environ)
+    benv.update({"NOCTUA_DB": db, "NOCTUA_AUDIT_KEY": "v15e-key",
+                 "NOCTUA_USERS": os.path.join(d, "users.json"),
+                 "NOCTUA_CASES": os.path.join(d, "cases.json"),
+                 "NOCTUA_CAMERAS": os.path.join(d, "cameras.json"),
+                 "NOCTUA_BACKUP_DIR": out_root,
+                 "NOCTUA_KEY_ESCROW_DIR": escrow_root,
+                 "NOCTUA_SENTINEL_SINK": os.path.join(d, "sink.log")})
+    r = subprocess.run(
+        [sys.executable, os.path.join(tree, "scripts", "backup.py")],
+        env=benv, capture_output=True, text=True, timeout=300)
+    ok = (r.returncode == 0 and os.path.isdir(arch_escrow)
+          and not os.path.exists(gone_escrow))
+    return ok, {"backup_rc": r.returncode,
+                "archival_escrow_kept": os.path.isdir(arch_escrow),
+                "orphan_escrow_pruned": not os.path.exists(gone_escrow),
+                "tail": (r.stdout + r.stderr)[-200:]}
+
+
+def _v15f_version_residues(tree):
+    audit_src = open(os.path.join(
+        tree, "scripts", "sentinel_audit.py")).read()
+    janus_src = open(os.path.join(tree, "janus.py")).read()
+    ok = ('"version": "1.2.7"' in audit_src
+          and '"target_schema_version": "1.2.5"' in janus_src)
+    return ok, {"sentinel_audit_127": '"version": "1.2.7"' in audit_src,
+                "migration_field_renamed":
+                '"target_schema_version": "1.2.5"' in janus_src}
+
+
+def v15_smalls(tree, side):
+    """The V15 bundle: (a) checkpoint.py treats a valid-JSON
+    non-object final line as truncatable tail; (b) sink archive
+    names never collide; (c) undecided submissions expire at 30
+    days and cannot be approved afterwards; (d) the divergence
+    ceremony chains a bounded stranded summary; (e) an escrow
+    prunes only with its paired set — an archivist-retained set
+    keeps its escrow, a set-less escrow still prunes; (f) the
+    version residues (sentinel_audit's own version; the
+    migration stamp's field semantics)."""
+    a_ok, a = _v15a_checkpoint_tail(tree)
+    b_ok, b = _v15b_archive_collision(tree)
+    c_ok, c = _v15c_pending_expiry(tree, side)
+    d_ok, dd = _v15d_stranded_cap(tree, side)
+    e_ok, e = _v15e_escrow_pairing(tree, side)
+    f_ok, f = _v15f_version_residues(tree)
+    ok = a_ok and b_ok and c_ok and d_ok and e_ok and f_ok
+    return ok, {"checkpoint_tail": a, "archive_collision": b,
+                "pending_expiry": c, "stranded_cap": dd,
+                "escrow_pairing": e, "version_residues": f}
+
+
+# ------------------------------------------------------------------
+# V16 — sink_divergence() names an unreadable sink (Addendum 1)
+# ------------------------------------------------------------------
+_V16_CODE = r"""
+import json, os, sys
+db, sink = os.environ["NOCTUA_DB"], os.environ["NOCTUA_SENTINEL_SINK"]
+os.environ.pop("NOCTUA_SENTINEL_SINK", None)
+sys.path.insert(0, os.environ["PYTHONPATH"])
+import sentinel
+ch = sentinel.Chain(db)
+for i in range(5):
+    ch.append("TEST", {"n": i})
+# the mirror's file is non-empty garbage and nothing was ever
+# delivered to it (recorded tail 0, file tail 0)
+with open(sink, "w") as f:
+    f.write("garbage, not json\nmore garbage\n")
+os.environ["NOCTUA_SENTINEL_SINK"] = sink
+ch2 = sentinel.Chain(db)
+out = {"divergence": ch2.sink_divergence()}
+print(json.dumps(out))
+"""
+
+
+def v16_sink_unreadable(tree, side):
+    """With a non-empty unparseable sink and no delivery ever
+    recorded, sink_divergence() returns the divergence — every
+    committed seq stranded — so POST
+    /audit/sink-divergence-accept can run. (1.2.6 computed
+    stranded only for seq <= max(tail, file) = 0, returned None,
+    and the ceremony 409'd forever while delivery stayed
+    halted.)"""
+    rc, out, _raw, err = run_unit(tree, _V16_CODE)
+    info = (out or {}).get("divergence") or {}
+    ok = (rc == 0 and bool(info)
+          and sorted(info.get("stranded_seqs") or []) == [1, 2, 3, 4, 5])
+    return ok, {"unit": out, "rc": rc, "stderr": err[-300:]}
+
+
+# ------------------------------------------------------------------
+# V17 — _auth_locked performs no out-of-lock write (Addendum 1)
+# ------------------------------------------------------------------
+_V17_CODE = r"""
+import json, os, sys, time
+d = os.path.dirname(os.environ["NOCTUA_DB"])
+users = [{"user": "det.okafor", "role": "detective",
+          "key_sha256": "x" * 64}]
+for name, obj in (("users.json", users),
+                  ("cases.json", {"open_cases": ["2027-1001"]}),
+                  ("cameras.json", {"cameras": ["CAM-01"]})):
+    with open(os.path.join(d, name), "w") as f:
+        json.dump(obj, f)
+os.environ.update({
+    "NOCTUA_USERS": os.path.join(d, "users.json"),
+    "NOCTUA_CASES": os.path.join(d, "cases.json"),
+    "NOCTUA_CAMERAS": os.path.join(d, "cameras.json"),
+    "NOCTUA_PORT": "0"})
+sys.path.insert(0, os.environ["PYTHONPATH"])
+import janus
+user = "det.okafor"
+janus._auth_locks[user] = {"fails": 5,
+                           "locked_until": time.time() + 900}
+janus._auth_lock_persist(user)
+q = "SELECT COUNT(*) FROM meta WHERE key=?"
+row_before = janus.db.execute(q, ("auth_lock:" + user,)).fetchone()[0]
+with open(os.environ["NOCTUA_DB"] + ".provision_marker", "w") as f:
+    f.write(json.dumps({"action": "unlock", "user": user}) + "\n")
+returned = janus._auth_locked(user)
+row_after = janus.db.execute(q, ("auth_lock:" + user,)).fetchone()[0]
+out = {"returned": returned, "row_before": row_before,
+       "row_after": row_after,
+       "in_memory_popped": user not in janus._auth_locks}
+print(json.dumps(out))
+"""
+
+
+def v17_auth_locked_no_write(tree, side):
+    """A pending shell unlock makes _auth_locked() return False
+    and pop the in-memory lock — and the PERSISTED lock row is
+    still there afterwards: the read path (which runs outside
+    DBLOCK) wrote nothing. (1.2.6 called _auth_lock_persist
+    here: DELETE + commit on the shared connection, out of
+    lock.)"""
+    rc, out, _raw, err = run_unit(tree, _V17_CODE)
+    ok = (rc == 0 and out and out.get("returned") is False
+          and out.get("in_memory_popped") is True
+          and out.get("row_before") == 1
+          and out.get("row_after") == 1)
+    return ok, {"unit": out, "rc": rc, "stderr": err[-300:]}
+
+
+# ------------------------------------------------------------------
+# V18 — compact.py per-side TOTP secrets (Addendum 1)
+# ------------------------------------------------------------------
+_V18_CODE = r"""
+import importlib.util, io, json, os, sys
+os.environ.pop("NOCTUA_TOTP_SECRET", None)
+tree = os.environ["PYTHONPATH"]
+sys.path.insert(0, tree)
+import sentinel
+spec = importlib.util.spec_from_file_location(
+    "compact_v18", os.path.join(tree, "scripts", "compact.py"))
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+captured = []
+class FakeResp:
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+    def read(self):
+        return b"{}"
+def fake_urlopen(req, timeout=None):
+    captured.append({k.lower(): v for k, v in req.headers.items()})
+    return FakeResp()
+mod.urllib.request.urlopen = fake_urlopen
+partner = os.environ["NOCTUA_PARTNER_TOTP_SECRET"]
+auditor = os.environ["NOCTUA_AUDITOR_TOTP_SECRET"]
+mod.http("http://partner", "/compact/checkpoint", "ca.partner",
+         "k", totp_secret=mod.PARTNER_TOTP_SECRET)
+mod.http("http://ours", "/compact/audit-result", "aud.ours",
+         "k", body={"x": 1}, totp_secret=mod.AUDITOR_TOTP_SECRET)
+mod.http("http://partner", "/compact/checkpoint-receipt",
+         "partner.role", "k", body={"x": 2})
+def code(secret):
+    return sentinel.totp_code(secret, sentinel.totp_counter_now())
+out = {
+  "partner_global": mod.PARTNER_TOTP_SECRET,
+  "auditor_global": mod.AUDITOR_TOTP_SECRET,
+  "partner_header": captured[0].get("x-noctua-totp"),
+  "partner_header_ok": captured[0].get("x-noctua-totp") == code(partner),
+  "auditor_header_ok": captured[1].get("x-noctua-totp") == code(auditor),
+  "sides_differ": captured[0].get("x-noctua-totp")
+                  != captured[1].get("x-noctua-totp"),
+  "receipt_has_no_totp": "x-noctua-totp" not in captured[2]}
+print(json.dumps(out))
+"""
+
+
+def v18_compact_per_side(tree, side):
+    """compact.py's two human sides carry DIFFERENT TOTP codes
+    (each computed from its own side's secret), and the
+    machine-role receipt post carries no TOTP header at all.
+    (1.2.6 attached the one global NOCTUA_TOTP_SECRET to every
+    call — and has no per-side parameter at all, so this unit
+    errors there, which is the defect's shape.)"""
+    rc, out, _raw, err = run_unit(
+        tree, _V18_CODE,
+        env_extra={"NOCTUA_PARTNER_TOTP_SECRET": "JBSWY3DPEHPK3PXP",
+                   "NOCTUA_AUDITOR_TOTP_SECRET": "JBSWY3DPEHPK3PXQ"})
+    ok = (rc == 0 and out
+          and out.get("partner_global") == "JBSWY3DPEHPK3PXP"
+          and out.get("auditor_global") == "JBSWY3DPEHPK3PXQ"
+          and out.get("partner_header_ok") is True
+          and out.get("auditor_header_ok") is True
+          and out.get("sides_differ") is True
+          and out.get("receipt_has_no_totp") is True)
+    return ok, {"unit": out, "rc": rc, "stderr": err[-300:]}
+
+
+# ------------------------------------------------------------------
+# runner
+# ------------------------------------------------------------------
+CASES_TABLE = [
+    ("v1_pickup_lockout", v1_pickup_lockout),
+    ("v2_submission_vs_live", v2_submission_vs_live),
+    ("v3_sink_mid_damage", v3_sink_mid_damage),
+    ("v4_ceremony_state", v4_ceremony_state),
+    ("v5_fence_reason_gate", v5_fence_reason_gate),
+    ("v5b_fence_atomicity", v5b_fence_atomicity),
+    ("v6_restore_unknown", v6_restore_unknown),
+    ("v7_registry_prune", v7_registry_prune),
+    ("v8_fail_totals_bound", v8_fail_totals_bound),
+    ("v9_safety_set", v9_safety_set),
+    ("v10_blocked_hit_ref", v10_blocked_hit_ref),
+    ("v11_pickup_expiry_scope", v11_pickup_expiry_scope),
+    ("v12_users_tmp_unique", v12_users_tmp_unique),
+    ("v13_evidence_uniform", v13_evidence_uniform),
+    ("v14_probe_retired", v14_probe_retired),
+    ("v15_smalls", v15_smalls),
+    ("v16_sink_unreadable", v16_sink_unreadable),
+    ("v17_auth_locked_no_write", v17_auth_locked_no_write),
+    ("v18_compact_per_side", v18_compact_per_side),
+]
+
+
+def run_case(name, fn):
+    try:
+        test_ok, test_detail = fn(TEST_TREE, "test")
+    except Exception as exc:
+        test_ok, test_detail = False, {"exception": repr(exc)[:400]}
+    try:
+        base_ok, base_detail = fn(BASE_TREE, "base")
+    except Exception as exc:
+        base_ok, base_detail = False, {"exception": repr(exc)[:400]}
+    ok = test_ok and not base_ok
+    report(name, ok, {"baseline_126": {"ok": base_ok,
+                                       "detail": base_detail},
+                      "test_127": {"ok": test_ok,
+                                   "detail": test_detail},
+                      "discriminating": not base_ok})
+
+
+def main():
+    print("V battery: test=%s baseline=%s" % (TEST_TREE, BASE_TREE))
+    for name, fn in CASES_TABLE:
+        if ONLY and ONLY not in name:
+            continue
+        run_case(name, fn)
+    failed = [n for n, ok in RESULTS if not ok]
+    print("=" * 60)
+    print("V battery: %d/%d cases pass" % (
+        len(RESULTS) - len(failed), len(RESULTS)))
+    if failed:
+        print("FAILED: %s" % ", ".join(failed))
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
