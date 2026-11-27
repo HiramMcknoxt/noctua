@@ -1,0 +1,804 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:,">
+<title>NOCTUA Operator Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --surface2:#f6f8f9; --line:#dde3e8; --line2:#cbd4db;
+  --ink:#10181f; --ink2:#3d4b57; --muted:#6b7a87;
+  --nav:#0d151c; --nav2:#131f29; --nav-ink:#c7d3dd; --nav-dim:#7f93a3;
+  --accent:#0e7c6b; --accent-ink:#fff; --accent-soft:#e0f2ee;
+  --amber:#b7791f; --amber-soft:#fdf0d5; --red:#b42318; --red-soft:#fdecea;
+  --blue:#175cd3; --blue-soft:#e8effd; --gold:#e8b33d;
+  --radius:20px; --radius-sm:14px; --shadow:0 2px 6px rgba(16,24,31,.05),0 12px 32px rgba(16,24,31,.07);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#0a0f14; --surface:#121a21; --surface2:#0f161d; --line:#22303c; --line2:#2e4152;
+    --ink:#e8eef2; --ink2:#b9c7d1; --muted:#8596a4;
+    --nav:#080d12; --nav2:#0e171f; --nav-ink:#c7d3dd; --nav-dim:#718594;
+    --accent:#2dd4bf; --accent-ink:#06231f; --accent-soft:#0c2b27;
+    --amber:#f0b84a; --amber-soft:#2e2410; --red:#ff7a6e; --red-soft:#331714;
+    --blue:#7aa8ff; --blue-soft:#16263f; --gold:#e8b33d;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+button,[role="button"],select,input,textarea{font:inherit}
+button{min-height:36px;cursor:pointer}
+a{color:var(--accent)}
+
+/* ---------- Layout ---------- */
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100dvh}
+@media(max-width:860px){.app{grid-template-columns:minmax(0,1fr)}}
+
+/* ---------- Sidebar ---------- */
+.side{background:var(--nav);color:var(--nav-ink);display:flex;flex-direction:column;position:sticky;top:0;height:100dvh;z-index:20;min-width:0}
+.brand{display:flex;align-items:center;gap:12px;padding:18px 18px 14px}
+.brand-text{line-height:1.1}
+.brand-text b{font-size:19px;letter-spacing:.14em;font-weight:700;color:#fff;display:block}
+.brand-text span{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--nav-dim)}
+/* Owl mark + hover levitation */
+.owl-wrap{width:46px;height:46px;flex:none;position:relative}
+.owl-shadow{position:absolute;left:50%;bottom:-4px;width:26px;height:6px;border-radius:50%;background:rgba(0,0,0,.45);transform:translateX(-50%);animation:shadowPulse 3.6s ease-in-out infinite}
+.owl{width:46px;height:46px;animation:levitate 3.6s ease-in-out infinite;transition:transform .35s cubic-bezier(.34,1.56,.64,1);filter:drop-shadow(0 4px 8px rgba(0,0,0,.35))}
+.owl-wrap:hover .owl{animation-duration:1.6s}
+.owl-wrap:hover .owl-shadow{animation-duration:1.6s}
+.owl .eye{transform-origin:center;animation:blink 5.2s infinite}
+@keyframes levitate{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-5px) rotate(1deg)}}
+@keyframes shadowPulse{0%,100%{transform:translateX(-50%) scaleX(1);opacity:.55}50%{transform:translateX(-50%) scaleX(.72);opacity:.3}}
+@keyframes blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.08)}}
+@media(prefers-reduced-motion:reduce){.owl,.owl-shadow,.owl .eye{animation:none!important}*{transition:none!important}}
+
+.nav{padding:6px 10px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.nav button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:0;color:var(--nav-ink);padding:9px 14px;border-radius:999px;font-weight:500;font-size:13.5px;transition:background .15s,color .15s,transform .15s}
+.nav button:hover{background:var(--nav2);color:#fff}
+.nav button.active{background:var(--gold);color:#231a00;font-weight:700}
+.nav button.active .count{background:rgba(0,0,0,.18);color:#231a00}
+.nav button:active{transform:scale(.985)}
+.nav .ico{width:18px;height:18px;flex:none;opacity:.9}
+.nav .count{margin-left:auto;background:#1e2f3e;color:#dbe7ef;font-family:"IBM Plex Mono",monospace;font-size:11px;padding:1px 7px;border-radius:99px;min-width:24px;text-align:center}
+.nav .count.hot{background:#5a1f1a;color:#ffb4a8}
+.nav .count.warn{background:#4a3410;color:#ffd98a}
+.side-foot{margin-top:auto;padding:14px 18px;border-top:1px solid #1b2a37;font-size:12px;color:var(--nav-dim)}
+.side-foot .op{display:flex;gap:9px;align-items:center;color:var(--nav-ink)}
+.avatar{width:30px;height:30px;border-radius:50%;background:var(--gold);color:#231a00;font-weight:700;display:grid;place-items:center;font-size:12px;flex:none}
+@media(max-width:860px){
+  .side{position:sticky;height:auto}
+  .brand{padding:12px 14px 8px}
+  .nav{flex-direction:row;flex-wrap:wrap;padding:4px 10px 10px}
+  .nav button{width:auto;white-space:nowrap;padding:8px 11px}
+  .nav .count{margin-left:2px}
+  .side-foot{display:none}
+}
+
+/* ---------- Main ---------- */
+.main{min-width:0;display:flex;flex-direction:column}
+.topbar{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:12px 22px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.topbar h1{font-size:17px;margin:0;font-weight:600;letter-spacing:-.01em}
+.topbar .sub{color:var(--muted);font-size:12.5px}
+.pills{margin-left:auto;display:flex;gap:7px;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:99px;border:1px solid var(--line);background:var(--surface);white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
+.dot.amber{background:var(--amber)} .dot.red{background:var(--red)}
+.dot.pulse{animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(14,124,107,.35)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.content{padding:20px 22px 28px;max-width:1180px;width:100%;margin:0 auto}
+@media(max-width:600px){.content{padding:14px 12px 22px}.topbar{padding:10px 12px}}
+
+/* Views */
+.view{display:none}
+.view.active{display:block;animation:viewIn .32s cubic-bezier(.22,.9,.3,1) both}
+@keyframes viewIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.view-head{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.view-head h2{margin:0;font-size:20px;letter-spacing:-.02em}
+.view-head p{margin:2px 0 0;color:var(--muted);font-size:13px;max-width:62ch}
+.view-head .actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+
+/* Cards / stats */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+@media(max-width:900px){.stats{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:13px 15px;box-shadow:var(--shadow)}
+.stat .k{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.stat .v{font-size:24px;font-weight:700;letter-spacing:-.02em;margin-top:2px;font-variant-numeric:tabular-nums}
+.stat .d{font-size:12px;color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.card-h{padding:13px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.card-h h3{margin:0;font-size:14px;font-weight:600}
+.card-h .hint{font-size:12px;color:var(--muted)}
+
+/* Badges & buttons */
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2.5px 8px;border-radius:99px;white-space:nowrap}
+.b-red{background:var(--red-soft);color:var(--red)} .b-amber{background:var(--amber-soft);color:var(--amber)}
+.b-green{background:var(--accent-soft);color:var(--accent)} .b-blue{background:var(--blue-soft);color:var(--blue)}
+.b-grey{background:var(--surface2);color:var(--ink2);border:1px solid var(--line)}
+.btn{border:1px solid var(--line2);background:var(--surface);color:var(--ink);border-radius:999px;padding:8px 16px;font-weight:600;font-size:13px;transition:transform .12s,background .15s,border-color .15s,box-shadow .15s;display:inline-flex;align-items:center;gap:6px;justify-content:center}
+.btn:hover{border-color:var(--muted);box-shadow:var(--shadow)}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.danger{background:var(--red);border-color:var(--red);color:#fff}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--ink2)}
+.btn.ghost:hover{background:var(--surface2)}
+.btn.sm{min-height:34px;padding:5px 14px;font-size:12.5px}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+
+/* Hits list */
+.hit{display:grid;grid-template-columns:118px 1fr auto;gap:14px;padding:14px 16px;border-bottom:1px solid var(--line);align-items:start;transition:background .2s,opacity .3s,transform .3s}
+.hit:last-child{border-bottom:0}
+.hit:hover{background:var(--surface2)}
+.hit.leaving{opacity:0;transform:translateX(14px)}
+.plate{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:16px;letter-spacing:.06em;background:var(--nav);color:#fff;border-radius:14px;padding:9px 9px;text-align:center;border:1px solid #2b3f50}
+.plate small{display:block;font-size:9px;letter-spacing:.18em;color:#9db2c2;font-weight:500;margin-top:1px}
+.hit-meta{min-width:0}
+.hit-meta .top{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:4px}
+.hit-meta .desc{font-size:13px;color:var(--ink2)}
+.hit-meta .where{font-size:12px;color:var(--muted);margin-top:3px}
+.hit-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+@media(max-width:700px){.hit{grid-template-columns:104px 1fr}.hit-actions{grid-column:1/-1;justify-content:flex-start}}
+
+/* Tables (audit) */
+.tblwrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:12.8px}
+th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:10px 14px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+tbody tr{transition:background .15s}
+tbody tr:hover{background:var(--surface2)}
+.hash{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--muted);word-break:break-all}
+.href{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--blue);background:var(--blue-soft);padding:1px 6px;border-radius:5px;white-space:nowrap}
+.chain-ok{color:var(--accent);font-weight:600}
+
+/* Forms */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:820px){.grid2{grid-template-columns:1fr}}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;font-weight:600;margin-bottom:5px}
+.field label .req{color:var(--red)}
+.field input,.field select,.field textarea{width:100%;border:1px solid var(--line2);border-radius:14px;padding:10px 14px;background:var(--surface);color:var(--ink);min-height:42px;transition:border-color .15s,box-shadow .15s}
+.field textarea{border-radius:16px}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.field .help{font-size:11.5px;color:var(--muted);margin-top:4px}
+.formbody{padding:16px}
+.seg{display:inline-flex;background:var(--surface2);border:1px solid var(--line);border-radius:999px;padding:3px;gap:3px}
+.seg button{border:0;background:transparent;border-radius:999px;padding:6px 15px;font-weight:600;font-size:13px;color:var(--ink2);transition:all .18s;min-height:34px;cursor:pointer}
+.seg button.active{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.seg.mode-seg button.active{background:var(--nav);color:#fff}
+.notice{border:1px solid var(--line);background:var(--amber-soft);border-radius:16px;padding:12px 15px;font-size:12.8px;margin-bottom:14px}
+.notice.blue{background:var(--blue-soft)}
+.checkline{display:flex;gap:9px;align-items:flex-start;font-size:13px;padding:8px 0}
+.checkline input{width:18px;height:18px;margin-top:1px;accent-color:var(--accent);flex:none}
+
+/* Queue rows (approvals / holds) */
+.rowitem{display:flex;gap:13px;padding:14px 16px;border-bottom:1px solid var(--line);align-items:flex-start;transition:background .2s,opacity .3s,transform .3s}
+.rowitem:last-child{border-bottom:0}
+.rowitem:hover{background:var(--surface2)}
+.rowitem.leaving{opacity:0;transform:translateX(14px)}
+.rowitem .grow{flex:1;min-width:0}
+.rowitem .t{font-weight:600;font-size:13.8px}
+.rowitem .s{font-size:12.5px;color:var(--muted);margin-top:2px}
+.row-actions{display:flex;gap:6px;flex-wrap:wrap}
+.keyslots{display:flex;gap:6px;margin-top:8px}
+.keyslot{font-family:"IBM Plex Mono",monospace;font-size:11px;border:1px dashed var(--line2);border-radius:999px;padding:5px 11px;color:var(--muted);transition:all .25s}
+.keyslot.filled{border-style:solid;border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+
+/* Health */
+.health-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media(max-width:900px){.health-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.health-grid{grid-template-columns:1fr}}
+.hcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:15px 16px;box-shadow:var(--shadow)}
+.hcard .k{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.hcard .v{font-size:19px;font-weight:700;margin-top:5px;letter-spacing:-.01em}
+.hcard .d{font-size:12.5px;color:var(--ink2);margin-top:3px}
+.meter{height:6px;border-radius:99px;background:var(--surface2);border:1px solid var(--line);margin-top:10px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .8s cubic-bezier(.22,.9,.3,1)}
+.camlist{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 18px}
+@media(max-width:640px){.camlist{grid-template-columns:1fr}}
+.cam{display:flex;align-items:center;gap:8px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--line)}
+.cam:last-child{border-bottom:0}
+.cam .n{color:var(--muted);font-size:12px;margin-left:auto;font-family:"IBM Plex Mono",monospace}
+
+/* Toast */
+.toast{position:fixed;bottom:20px;left:50%;transform:translate(-50%,80px);background:var(--nav);color:#eef4f8;padding:12px 20px;border-radius:999px;font-size:13.5px;font-weight:500;box-shadow:0 12px 32px rgba(0,0,0,.35);z-index:60;transition:transform .35s cubic-bezier(.22,1.2,.36,1);display:flex;gap:9px;align-items:center;max-width:calc(100vw - 24px);text-align:center}
+.toast.show{transform:translate(-50%,0)}
+
+/* Modal */
+.overlay{position:fixed;inset:0;background:rgba(8,13,18,.62);z-index:50;display:none;align-items:center;justify-content:center;padding:16px}
+.overlay.open{display:flex}
+.modal{background:var(--surface);border-radius:24px;max-width:500px;width:100%;box-shadow:0 24px 64px rgba(0,0,0,.35);animation:modalIn .28s cubic-bezier(.22,1.2,.36,1) both;max-height:calc(100dvh - 32px);overflow-y:auto}
+@keyframes modalIn{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}
+.modal-h{padding:17px 20px 0}
+.modal-h h3{margin:0;font-size:16px}
+.modal-h p{margin:5px 0 0;color:var(--muted);font-size:13px}
+.modal-b{padding:16px 20px}
+.modal-f{padding:0 20px 18px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+
+/* Mode: Clean vs Demo + dispatch confirm */
+.clean-only{display:none!important}
+body.clean-mode .clean-only{display:block!important}
+body.clean-mode .clean-only-tr{display:table-row!important}
+body.clean-mode .hit,body.clean-mode #view-holds .rowitem,body.clean-mode #view-approvals [data-appr],body.clean-mode #view-approvals #decidedList .rowitem,body.clean-mode #tier3List .rowitem,body.clean-mode #view-audit tbody tr:not(.clean-only-tr){display:none!important}
+body.clean-mode #view-holds .notice{display:none!important}
+body.clean-mode [data-demo-badge]{display:none!important}
+body.clean-mode span.clean-only{display:inline-flex!important}
+.mode-wrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mode-label{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.dispatch-summary{background:var(--surface2);border:1px solid var(--line);border-radius:18px;padding:14px 16px;margin-bottom:14px}
+.dispatch-summary .plate-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.dispatch-summary .d-desc{font-size:13.5px;color:var(--ink2)}
+.dispatch-summary .d-where{font-size:12.5px;color:var(--muted);margin-top:5px}
+.step-dots{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted);margin-bottom:12px;flex-wrap:wrap}
+.step-dots b{color:var(--ink)}
+.step-dot{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--surface2);border:1px solid var(--line2);font-size:11px;font-weight:700;flex:none}
+.step-dot.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.card,.stat,.hcard{border-radius:var(--radius)}
+.hit:first-child{border-radius:var(--radius) var(--radius) 0 0}
+.hit:last-child{border-radius:0 0 var(--radius) var(--radius)}
+.rowitem:first-child{border-radius:var(--radius) var(--radius) 0 0}
+footer{padding:18px 22px 26px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);margin-top:auto}
+footer .wrap{max-width:1180px;margin:0 auto;display:flex;gap:10px;flex-wrap:wrap;justify-content:space-between}
+.empty{padding:26px 16px;text-align:center;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="side">
+    <div class="brand">
+      <div class="owl-wrap" aria-hidden="true">
+        <svg class="owl" viewBox="0 0 48 48" fill="none" role="img" aria-label="NOCTUA owl">
+          <path d="M10 6l7 4h14l7-4-2.5 9.5C37.6 19 38 21.6 38 25a14 12.5 0 1 1-28 0c0-3.4.4-6 2.5-9.5L10 6z" fill="#16242f" stroke="#e8b33d" stroke-width="1.6"/>
+          <circle cx="17.5" cy="23" r="6.4" fill="#0d151c" stroke="#e8b33d" stroke-width="1.4"/>
+          <circle cx="30.5" cy="23" r="6.4" fill="#0d151c" stroke="#e8b33d" stroke-width="1.4"/>
+          <g class="eye"><circle cx="17.5" cy="23" r="2.7" fill="#e8b33d"/><circle cx="30.5" cy="23" r="2.7" fill="#e8b33d"/></g>
+          <path d="M24 27.5l-2.2 2.6h4.4L24 27.5z" fill="#e8b33d"/>
+          <path d="M16 38.5c2.4 1.6 5.2 2.4 8 2.4s5.6-.8 8-2.4" stroke="#3d5a70" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <div class="owl-shadow"></div>
+      </div>
+      <div class="brand-text"><b>NOCTUA</b><span>Operator Console</span></div>
+    </div>
+    <nav class="nav" id="nav" aria-label="Console sections">
+      <button data-view="hits" class="active"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>Hits Queue<span class="count hot" id="navHits">4</span></button>
+      <button data-view="search"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>Search</button>
+      <button data-view="holds"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Suppressions &amp; Holds<span class="count" id="navHolds">5</span></button>
+      <button data-view="approvals"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>Hotlist Approvals<span class="count warn" id="navAppr">3</span></button>
+      <button data-view="audit"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Audit Log</button>
+      <button data-view="health"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l2.5-6 4 12L16 12h5"/></svg>System Health</button>
+    </nav>
+    <div class="side-foot">
+      <div class="op"><span class="avatar">DK</span><span><b style="color:#fff;display:block;font-size:13px">Sgt. D. Keller</b>Supervisor · Badge 0417</span></div>
+      <div style="margin-top:10px">Shift B · Cabot PD<br>Session expires 06:00</div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main">
+    <header class="topbar">
+      <div><h1 id="pageTitle">Hits Queue</h1><div class="sub" id="pageSub">Thursday, November 26, 2026 · Central Time</div></div>
+      <div class="mode-wrap">
+        <span class="mode-label">View</span>
+        <div class="seg mode-seg" role="group" aria-label="Console mode">
+          <button class="active" id="modeDemo" onclick="setMode('demo')">Demo</button>
+          <button id="modeClean" onclick="setMode('clean')">Clean</button>
+        </div>
+        <span class="pill" id="modePill"><span class="dot amber"></span>Demo data</span>
+      </div>
+      <div class="pills">
+        <span class="pill"><span class="dot pulse"></span>Anchor fence · STANDING</span>
+        <span class="pill"><span class="dot"></span>Chain verified</span>
+        <span class="pill"><span class="dot amber"></span>3 approvals pending</span>
+      </div>
+    </header>
+
+    <div class="content">
+
+      <!-- ======== HITS ======== -->
+      <section class="view active" id="view-hits">
+        <div class="view-head">
+          <div><h2>Hits Queue</h2><p>Plate reads matched against the active hot list. <b>Confirm &amp; Dispatch now opens a review step first</b> — check the plate, case and location, tick the verification box, then dispatch. Nothing dispatches from the list alone, and every confirmed action writes to the audit chain.</p></div>
+          <div class="actions"><button class="btn" onclick="toast('Queue refreshed · 4 unverified hits')">↻ Refresh</button></div>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="k">Unverified hits</div><div class="v" id="statUnverified">4</div><div class="d">Oldest waiting 11 min</div></div>
+          <div class="stat"><div class="k">Reads today</div><div class="v" id="statReads">18,442</div><div class="d" id="statReadsD">Across 14 cameras</div></div>
+          <div class="stat"><div class="k">Hit rate</div><div class="v" id="statRate">0.09%</div><div class="d" id="statRateD">17 matches / 18,442 reads</div></div>
+          <div class="stat"><div class="k">Avg. verify time</div><div class="v" id="statAvg">3m 12s</div><div class="d">Shift B, today</div></div>
+        </div>
+        <div class="notice clean-only" style="background:var(--accent-soft)"><b>Clean view.</b> No sample hits are shown. This is the console as an operator sees it with an empty queue — new matches will appear here in the live system.</div>
+        <div class="card" id="hitList">
+          <div class="empty clean-only">Queue clear — no unverified hits. Nothing is waiting for disposition.</div>
+          <div class="hit" data-hit>
+            <div class="plate">KXR 482<small>ARKANSAS</small></div>
+            <div class="hit-meta">
+              <div class="top"><span class="badge b-red">STOLEN VEHICLE</span><span class="badge b-grey mono">Case CAB-2026-1184</span><span class="badge b-amber">Unverified</span></div>
+              <div class="desc">2019 Ford F-150, silver · NCIC entry active · Owner report filed Nov 24</div>
+              <div class="where">📍 Hwy 321 N @ Main St · Camera CAM-04 · 22:47:18 CT · Confidence 98.2%</div>
+            </div>
+            <div class="hit-actions">
+              <button class="btn sm primary" onclick="openDispatch(this,'Confirmed — units dispatched')">Confirm &amp; Dispatch</button>
+              <button class="btn sm" onclick="disposition(this,'Marked as misread')">Misread</button>
+              <button class="btn sm ghost" onclick="disposition(this,'Placed on evidence hold')">Hold</button>
+            </div>
+          </div>
+          <div class="hit" data-hit>
+            <div class="plate">7TP 913<small>ARKANSAS</small></div>
+            <div class="hit-meta">
+              <div class="top"><span class="badge b-red">FELONY WARRANT</span><span class="badge b-grey mono">Case CAB-2026-1171</span><span class="badge b-amber">Unverified</span></div>
+              <div class="desc">Registered owner has an active felony warrant · Lonoke County SO</div>
+              <div class="where">📍 S Pine St @ Central Ave · Camera CAM-09 · 22:39:02 CT · Confidence 96.7%</div>
+            </div>
+            <div class="hit-actions">
+              <button class="btn sm primary" onclick="openDispatch(this,'Confirmed — units dispatched')">Confirm &amp; Dispatch</button>
+              <button class="btn sm" onclick="disposition(this,'Marked as misread')">Misread</button>
+              <button class="btn sm ghost" onclick="disposition(this,'Placed on evidence hold')">Hold</button>
+            </div>
+          </div>
+          <div class="hit" data-hit>
+            <div class="plate">BDW 226<small>ARKANSAS</small></div>
+            <div class="hit-meta">
+              <div class="top"><span class="badge b-amber">AMBER ALERT — ASSOCIATED</span><span class="badge b-grey mono">Case ASP-2026-0892</span><span class="badge b-amber">Unverified</span></div>
+              <div class="desc">Vehicle associated with active AMBER Alert · Arkansas State Police · Do not approach — observe &amp; report</div>
+              <div class="where">📍 Hwy 89 S @ Kerr Rd · Camera CAM-12 · 22:31:44 CT · Confidence 91.4%</div>
+            </div>
+            <div class="hit-actions">
+              <button class="btn sm primary" onclick="openDispatch(this,'Confirmed — State Police notified')">Confirm &amp; Notify ASP</button>
+              <button class="btn sm" onclick="disposition(this,'Marked as misread')">Misread</button>
+              <button class="btn sm ghost" onclick="disposition(this,'Placed on evidence hold')">Hold</button>
+            </div>
+          </div>
+          <div class="hit" data-hit>
+            <div class="plate">MLN 057<small>ARKANSAS</small></div>
+            <div class="hit-meta">
+              <div class="top"><span class="badge b-blue">INVESTIGATIVE</span><span class="badge b-grey mono">Case CAB-2026-1155</span><span class="badge b-amber">Unverified</span></div>
+              <div class="desc">Detective hotlist entry · Burglary series, Greystone area · Expires Dec 3</div>
+              <div class="where">📍 W Main St @ 2nd St · Camera CAM-02 · 22:18:57 CT · Confidence 94.9%</div>
+            </div>
+            <div class="hit-actions">
+              <button class="btn sm primary" onclick="openDispatch(this,'Confirmed — case detective notified')">Confirm &amp; Notify</button>
+              <button class="btn sm" onclick="disposition(this,'Marked as misread')">Misread</button>
+              <button class="btn sm ghost" onclick="disposition(this,'Placed on evidence hold')">Hold</button>
+            </div>
+          </div>
+          <div class="hit" style="opacity:.75">
+            <div class="plate">RTA 610<small>ARKANSAS</small></div>
+            <div class="hit-meta">
+              <div class="top"><span class="badge b-blue">INVESTIGATIVE</span><span class="badge b-grey mono">Case CAB-2026-1149</span><span class="badge b-green">Verified · Dispatched</span></div>
+              <div class="desc">Confirmed by Ofc. Ruiz at 21:58 · Unit 12 en route at time of read</div>
+              <div class="where">📍 Hwy 321 S @ Bill Foster Hwy · Camera CAM-06 · 21:52:10 CT · Confidence 97.5%</div>
+            </div>
+            <div class="hit-actions"><span class="badge b-grey mono">audit #88412</span></div>
+          </div>
+        </div>
+        <p style="color:var(--muted);font-size:12.5px;margin-top:12px">Suppressed plates never appear here. A read matching a protection-order suppression is blocked at ingest and logged in the audit chain as a keyed reference only.</p>
+      </section>
+
+      <!-- ======== SEARCH ======== -->
+      <section class="view" id="view-search">
+        <div class="view-head">
+          <div><h2>Search</h2><p>Quick search covers the contemporaneous window only. Historical search is Tier 3 — it requires a judicial instrument, a case number, and a second supervisor's approval before any record is returned.</p></div>
+        </div>
+        <div style="margin-bottom:14px"><div class="seg" role="tablist">
+          <button class="active" id="segQuick" onclick="setSearchMode('quick')">Quick · Contemporaneous</button>
+          <button id="segTier3" onclick="setSearchMode('tier3')">Tier 3 · Historical</button>
+        </div></div>
+
+        <div id="searchQuick">
+          <div class="card"><div class="formbody">
+            <div class="grid2">
+              <div class="field"><label for="qPlate">Plate (full or partial)</label><input id="qPlate" class="mono" placeholder="e.g. KXR 482" autocomplete="off"><div class="help">Searches reads from the last 24 hours only.</div></div>
+              <div class="field"><label for="qCam">Camera</label><select id="qCam"><option>All cameras</option><option>CAM-02 · W Main St @ 2nd St</option><option>CAM-04 · Hwy 321 N @ Main St</option><option>CAM-06 · Hwy 321 S @ Bill Foster Hwy</option><option>CAM-09 · S Pine St @ Central Ave</option><option>CAM-12 · Hwy 89 S @ Kerr Rd</option></select></div>
+            </div>
+            <div class="field"><label for="qCase">Case number <span class="req">*</span></label><input id="qCase" class="mono" placeholder="CAB-2026-____"><div class="help">Required. Every search is bound to a case and written to the audit chain.</div></div>
+            <button class="btn primary" onclick="runQuickSearch()">Run quick search</button>
+          </div></div>
+          <div id="quickResults" style="margin-top:14px"></div>
+        </div>
+
+        <div id="searchTier3" style="display:none">
+          <div class="notice"><b>Tier 3 gate.</b> This request returns <b>no data</b> until three conditions hold: a judicial instrument on file, a valid case number, and approval by a second supervisor who is not the requester. The request itself is audit-logged the moment it is submitted.</div>
+          <div class="grid2">
+            <div class="card"><div class="card-h"><h3>Request historical search</h3></div><div class="formbody">
+              <div class="field"><label for="tPlate">Plate <span class="req">*</span></label><input id="tPlate" class="mono" placeholder="Full plate" autocomplete="off"></div>
+              <div class="field"><label for="tCase">Case number <span class="req">*</span></label><input id="tCase" class="mono" placeholder="CAB-2026-____"></div>
+              <div class="field"><label for="tInstrument">Judicial instrument <span class="req">*</span></label><select id="tInstrument"><option value="">Select…</option><option>Search warrant</option><option>Court order</option><option>Grand jury subpoena</option></select></div>
+              <div class="field"><label for="tInstrumentNo">Instrument number <span class="req">*</span></label><input id="tInstrumentNo" class="mono" placeholder="e.g. 2026-CR-4417"></div>
+              <div class="grid2">
+                <div class="field"><label for="tFrom">From <span class="req">*</span></label><input id="tFrom" type="date" value="2026-11-01"></div>
+                <div class="field"><label for="tTo">To <span class="req">*</span></label><input id="tTo" type="date" value="2026-11-26"></div>
+              </div>
+              <div class="field"><label for="tJust">Justification <span class="req">*</span></label><textarea id="tJust" rows="3" placeholder="State the investigative need for this historical search…"></textarea></div>
+              <label class="checkline"><input type="checkbox" id="tAttest"><span>I attest the instrument above authorizes this search and the plate is material to the case named.</span></label>
+              <button class="btn primary" style="margin-top:10px" onclick="submitTier3()">Submit for second-supervisor approval</button>
+            </div></div>
+            <div>
+              <div class="card"><div class="card-h"><h3>Pending approvals</h3><span class="badge b-amber" id="tier3Count">1 awaiting</span></div>
+                <div id="tier3List">
+                  <div class="rowitem">
+                    <div class="grow"><div class="t mono">href:9f2c…a41d <span class="badge b-amber">Awaiting 2nd supervisor</span></div>
+                    <div class="s">Requested by Det. Alvarez · 21:14 CT · Case CAB-2026-1163 · Warrant 2026-CR-4390 · Window Nov 3–17<br>Plate held as keyed reference until approval — raw plate is not shown in pending state.</div></div>
+                  </div>
+                </div>
+                <div class="empty clean-only">No pending Tier 3 requests in clean view.</div>
+                <div class="empty" id="tier3Empty" style="display:none">No pending Tier 3 requests.</div>
+              </div>
+              <div class="card" style="margin-top:12px"><div class="card-h"><h3>Recently decided</h3></div>
+                <div class="rowitem"><div class="grow"><div class="t">Tier 3 · Case CAB-2026-1140 <span class="badge b-green">Approved &amp; executed</span></div><div class="s">Approved by Lt. Osei · 19:02 CT · 6 reads returned · Court order 2026-CV-118</div></div></div>
+                <div class="rowitem"><div class="grow"><div class="t">Tier 3 · Case CAB-2026-1131 <span class="badge b-red">Denied</span></div><div class="s">Denied by Sgt. Keller · 17:40 CT · Instrument did not cover the requested window</div></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======== HOLDS ======== -->
+      <section class="view" id="view-holds">
+        <div class="view-head">
+          <div><h2>Suppressions &amp; Holds</h2><p>Protection-order suppressions block reads at ingest. Evidence holds preserve records past retention. Releasing either takes two keys — two different authorized operators, in sequence.</p></div>
+          <div class="actions"><button class="btn" onclick="toast('New suppression — requires a court order number to save')">+ New suppression</button></div>
+        </div>
+        <div class="grid2">
+          <div class="card"><div class="card-h"><h3>Protection-order suppressions</h3><span class="badge b-blue" data-demo-badge>3 active</span><span class="badge b-grey clean-only">0 in clean view</span></div><div class="empty clean-only">No suppressions shown in clean view.</div>
+            <div class="rowitem"><div class="grow"><div class="t mono">href:41be…07c2 <span class="badge b-blue">Suppressed</span></div><div class="s">Order of Protection 2026-DR-221 · Lonoke County Circuit · Entered Nov 18 · Expires May 18, 2027<br>Reads blocked at ingest: <b>2</b> · Raw plate never stored in suppression record</div>
+            <div class="keyslots"><span class="keyslot" data-k>Key 1 — — —</span><span class="keyslot" data-k>Key 2 — — —</span></div></div>
+            <div class="row-actions"><button class="btn sm danger" onclick="openRelease(this,'suppression','href:41be…07c2')">Release…</button></div></div>
+            <div class="rowitem"><div class="grow"><div class="t mono">href:88d0…f3a9 <span class="badge b-blue">Suppressed</span></div><div class="s">Order of Protection 2026-DR-197 · Entered Oct 30 · Expires Apr 30, 2027<br>Reads blocked at ingest: <b>0</b></div>
+            <div class="keyslots"><span class="keyslot" data-k>Key 1 — — —</span><span class="keyslot" data-k>Key 2 — — —</span></div></div>
+            <div class="row-actions"><button class="btn sm danger" onclick="openRelease(this,'suppression','href:88d0…f3a9')">Release…</button></div></div>
+            <div class="rowitem"><div class="grow"><div class="t mono">href:c512…9e08 <span class="badge b-blue">Suppressed</span></div><div class="s">No-Contact Order 2026-CR-4102 · Entered Nov 2 · Expires Nov 2, 2027<br>Reads blocked at ingest: <b>5</b></div>
+            <div class="keyslots"><span class="keyslot" data-k>Key 1 — — —</span><span class="keyslot" data-k>Key 2 — — —</span></div></div>
+            <div class="row-actions"><button class="btn sm danger" onclick="openRelease(this,'suppression','href:c512…9e08')">Release…</button></div></div>
+          </div>
+          <div class="card"><div class="card-h"><h3>Evidence holds</h3><span class="badge b-amber" data-demo-badge>2 active</span><span class="badge b-grey clean-only">0 in clean view</span></div><div class="empty clean-only">No evidence holds shown in clean view.</div>
+            <div class="rowitem"><div class="grow"><div class="t">Hold EH-2026-031 · Case CAB-2026-1184 <span class="badge b-amber">Held</span></div><div class="s">All reads, Hwy 321 corridor · Nov 24–26 · Placed by Det. Alvarez · Retention override until case closure</div>
+            <div class="keyslots"><span class="keyslot" data-k>Key 1 — — —</span><span class="keyslot" data-k>Key 2 — — —</span></div></div>
+            <div class="row-actions"><button class="btn sm danger" onclick="openRelease(this,'evidence hold','EH-2026-031')">Release…</button></div></div>
+            <div class="rowitem"><div class="grow"><div class="t">Hold EH-2026-027 · Case CAB-2026-1098 <span class="badge b-amber">Held</span></div><div class="s">Single plate, all cameras · Nov 9–present · Placed by Lt. Osei · Linked to pending prosecution</div>
+            <div class="keyslots"><span class="keyslot" data-k>Key 1 — — —</span><span class="keyslot" data-k>Key 2 — — —</span></div></div>
+            <div class="row-actions"><button class="btn sm danger" onclick="openRelease(this,'evidence hold','EH-2026-027')">Release…</button></div></div>
+            <div class="notice" style="margin:14px 16px 16px"><b>Two-key rule.</b> The operator who turns Key 1 cannot turn Key 2. A release with an unaccepted divergence on the fence cannot complete — the attempt itself is chained to the audit log.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======== APPROVALS ======== -->
+      <section class="view" id="view-approvals">
+        <div class="view-head">
+          <div><h2>Hotlist Approvals</h2><p>Entries submitted by officers and detectives take effect only after supervisor approval. Approving activates the entry immediately; rejecting returns it with your reason attached.</p></div>
+        </div>
+        <div class="card" id="apprList">
+          <div class="empty clean-only">No pending submissions — the hotlist approval queue is clear.</div>
+          <div class="rowitem" data-appr>
+            <div class="plate" style="min-width:104px">VHN 338<small>ARKANSAS</small></div>
+            <div class="grow"><div class="t">Stolen vehicle — reported <span class="badge b-red">High priority</span></div>
+            <div class="s">Submitted by Ofc. Ruiz · 22:05 CT · Case CAB-2026-1187 · 2021 Jeep Grand Cherokee, black<br>Source: owner report + NCIC verification · Requested duration: until recovered</div></div>
+            <div class="row-actions"><button class="btn sm primary" onclick="decideAppr(this,true)">Approve</button><button class="btn sm" onclick="decideAppr(this,false)">Reject</button></div>
+          </div>
+          <div class="rowitem" data-appr>
+            <div class="plate" style="min-width:104px">QAS 774<small>ARKANSAS</small></div>
+            <div class="grow"><div class="t">Investigative — narcotics distribution</div>
+            <div class="s">Submitted by Det. Alvarez · 20:48 CT · Case CAB-2026-1179 · 2018 Dodge Charger, grey<br>Source: surveillance log, 3 sightings · Requested duration: 14 days</div></div>
+            <div class="row-actions"><button class="btn sm primary" onclick="decideAppr(this,true)">Approve</button><button class="btn sm" onclick="decideAppr(this,false)">Reject</button></div>
+          </div>
+          <div class="rowitem" data-appr>
+            <div class="plate" style="min-width:104px">JKE 190<small>TENNESSEE</small></div>
+            <div class="grow"><div class="t">Wanted person — vehicle association</div>
+            <div class="s">Submitted by Ofc. Tran · 19:31 CT · Case CAB-2026-1176 · 2020 Nissan Altima, white<br>Source: Memphis PD BOLO, verified by phone · Requested duration: 7 days</div></div>
+            <div class="row-actions"><button class="btn sm primary" onclick="decideAppr(this,true)">Approve</button><button class="btn sm" onclick="decideAppr(this,false)">Reject</button></div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:12px"><div class="card-h"><h3>Decided this shift</h3></div>
+          <div id="decidedList">
+            <div class="empty clean-only">No decisions yet in clean view.</div>
+            <div class="rowitem"><div class="grow"><div class="t mono">PLT ·· 552 <span class="badge b-green">Approved · active</span></div><div class="s">Approved by you · 18:12 CT · Case CAB-2026-1160 · audit #88397</div></div></div>
+            <div class="rowitem"><div class="grow"><div class="t mono">PLT ·· 018 <span class="badge b-red">Rejected</span></div><div class="s">Rejected by you · 17:03 CT · No case number attached · audit #88371</div></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======== AUDIT ======== -->
+      <section class="view" id="view-audit">
+        <div class="view-head">
+          <div><h2>Audit Log</h2><p>Append-only, hash-chained. Each entry links to the previous entry's hash; a break anywhere invalidates everything after it. Blocked and suppressed events carry keyed plate references (<span class="mono">href:…</span>) — never raw plates.</p></div>
+          <div class="actions"><button class="btn" onclick="toast('Chain re-verified · 88,412 entries · 0 breaks')">Verify chain</button><button class="btn" onclick="toast('Export queued · signed CSV with chain head')">Export</button></div>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="k">Chain status</div><div class="v" style="color:var(--accent)">Intact</div><div class="d">Head <span class="mono">a91f…77c0</span></div></div>
+          <div class="stat"><div class="k">Entries</div><div class="v">88,412</div><div class="d">Since enrollment, Mar 2026</div></div>
+          <div class="stat"><div class="k">Anchor fence</div><div class="v">Standing</div><div class="d">Reason: file-state · promoted Nov 26</div></div>
+          <div class="stat"><div class="k">Divergences</div><div class="v">1 open</div><div class="d">Checkpoint disagreement · unaccepted</div></div>
+        </div>
+        <div class="notice"><b>Fence notice.</b> The anchor fence is standing on a promoted file-state record. While it stands, ceremony releases are fenced and no divergence can auto-clear — an operator must review and accept or escalate. <button class="btn sm" style="margin-left:6px" onclick="toast('Divergence D-118 opened for review')">Review divergence D-118</button></div>
+        <div class="card"><div class="empty clean-only">Clean view — sample audit entries are hidden. Live entries will chain here as actions are taken.</div><div class="tblwrap"><table>
+          <thead><tr><th>#</th><th>Time (CT)</th><th>Actor</th><th>Event</th><th>Subject</th><th>Prev → Hash</th><th>Chain</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">88412</td><td class="mono">22:52:03</td><td>Sgt. Keller</td><td>Hit verified · dispatch</td><td class="mono">RTA 610 · CAB-2026-1149</td><td class="hash">04be…d2 → a91f…77c0</td><td class="chain-ok">✓ linked</td></tr>
+            <tr><td class="mono">88411</td><td class="mono">22:47:19</td><td>system</td><td>Read blocked · suppression</td><td><span class="href">href:41be…07c2</span></td><td class="hash">c771…9a → 04be…d2</td><td class="chain-ok">✓ linked</td></tr>
+            <tr><td class="mono">88410</td><td class="mono">22:47:18</td><td>system</td><td>Hit raised · stolen vehicle</td><td class="mono">KXR 482 · CAB-2026-1184</td><td class="hash">58d0…e1 → c771…9a</td><td class="chain-ok">✓ linked</td></tr>
+            <tr><td class="mono">88409</td><td class="mono">22:31:07</td><td>system</td><td>Divergence recorded · checkpoint</td><td class="mono">D-118 · anchor set B</td><td class="hash">b3aa…4f → 58d0…e1</td><td class="chain-ok">✓ linked</td></tr>
+            <tr><td class="mono">88408</td><td class="mono">22:30:58</td><td>system</td><td>Fence promoted · file-state → divergence</td><td class="mono">fence F-07</td><td class="hash">9e02…c8 → b3aa…4f</td><td class="chain-ok">✓ linked</td></tr>
+            <tr><td class="mono">88407</td><td class="mono">21:14:22</td><td>Det. Alvarez</td><td>Tier 3 requested · pending 2nd supervisor</td><td><span class="href">href:9f2c…a41d</span> · CAB-2026-1163</td><td class="hash">71cd…03 → 9e02…c8</td><td class="chain-ok">✓ linked</td></tr>
+            <tr><td class="mono">88406</td><td class="mono">19:02:41</td><td>Lt. Osei</td><td>Tier 3 approved · executed</td><td class="mono">CAB-2026-1140 · 6 reads</td><td class="hash">3f88…b6 → 71cd…03</td><td class="chain-ok">✓ linked</td></tr>
+            <tr><td class="mono">88405</td><td class="mono">18:12:09</td><td>Sgt. Keller</td><td>Hotlist entry approved</td><td class="mono">Case CAB-2026-1160</td><td class="hash">aa10…5d → 3f88…b6</td><td class="chain-ok">✓ linked</td></tr>
+            <tr><td class="mono">88404</td><td class="mono">17:40:15</td><td>Sgt. Keller</td><td>Tier 3 denied · instrument scope</td><td><span class="href">href:6d77…b210</span> · CAB-2026-1131</td><td class="hash">f0c4…92 → aa10…5d</td><td class="chain-ok">✓ linked</td></tr>
+          </tbody>
+        </table></div></div>
+      </section>
+
+      <!-- ======== HEALTH ======== -->
+      <section class="view" id="view-health">
+        <div class="view-head">
+          <div><h2>System Health</h2><p>Live posture of the NOCTUA deployment. The fence, ceremony, and enrollment states below are the same states the audit chain attests to — health never reports “ok” over a standing fence without saying so.</p></div>
+          <div class="actions"><button class="btn" onclick="toast('Health snapshot written to audit chain')">Snapshot to audit</button></div>
+        </div>
+        <div class="health-grid">
+          <div class="hcard"><div class="k">Anchor fence <span class="badge b-amber">Standing</span></div><div class="v">F-07 · Promoted</div><div class="d">Raised on file-state; promoted to divergence at 22:30 CT when checkpoint D-118 disagreed. Auto-clear is disabled while a divergence is unaccepted.</div><div class="meter"><i style="width:100%;background:var(--amber)"></i></div></div>
+          <div class="hcard"><div class="k">Ceremony state <span class="badge b-blue">Fenced</span></div><div class="v">No ceremony open</div><div class="d">Key ceremonies and both release endpoints are fenced while F-07 stands. Any probe during a ceremony writes a chained protection order.</div><div class="meter"><i style="width:34%;background:var(--blue)"></i></div></div>
+          <div class="hcard"><div class="k">Enrollment <span class="badge b-green">Enrolled</span></div><div class="v">14 / 14 cameras</div><div class="d">All cameras enrolled with current key material. Last key rotation Oct 28, 2026 · next due Jan 2027.</div><div class="meter"><i style="width:100%"></i></div></div>
+          <div class="hcard"><div class="k">Ingest <span class="badge b-green">Healthy</span></div><div class="v">512 reads / min</div><div class="d">Median ingest latency 0.8s · suppression check runs at ingest, before storage.</div><div class="meter"><i style="width:92%"></i></div></div>
+          <div class="hcard"><div class="k">Retention <span class="badge b-green">On policy</span></div><div class="v">30-day rolling</div><div class="d">Non-hit reads purge at 30 days unless held. Archived backup sets are preserved per policy; tonight's job verified at 03:00 CT.</div><div class="meter"><i style="width:88%"></i></div></div>
+          <div class="hcard"><div class="k">Audit chain <span class="badge b-green">Verified</span></div><div class="v">88,412 entries</div><div class="d">Last full verification 22:00 CT · 0 breaks · head <span class="mono">a91f…77c0</span>.</div><div class="meter"><i style="width:100%"></i></div></div>
+        </div>
+        <div class="card" style="margin-top:12px"><div class="card-h"><h3>Cameras</h3><span class="hint">Reads in the last hour</span></div>
+          <div style="padding:6px 16px 12px"><div class="camlist">
+            <div class="cam"><span class="dot"></span>CAM-02 · W Main St @ 2nd St<span class="n">1,204</span></div>
+            <div class="cam"><span class="dot"></span>CAM-04 · Hwy 321 N @ Main St<span class="n">1,866</span></div>
+            <div class="cam"><span class="dot"></span>CAM-06 · Hwy 321 S @ Bill Foster Hwy<span class="n">1,540</span></div>
+            <div class="cam"><span class="dot"></span>CAM-09 · S Pine St @ Central Ave<span class="n">987</span></div>
+            <div class="cam"><span class="dot"></span>CAM-12 · Hwy 89 S @ Kerr Rd<span class="n">763</span></div>
+            <div class="cam"><span class="dot amber"></span>CAM-13 · Kerr Rd @ Country Club — degraded light<span class="n">412</span></div>
+          </div></div>
+        </div>
+      </section>
+
+    </div>
+    <footer><div class="wrap"><span id="footerNote"><b>NOCTUA 1.2.8</b> · Operator Console — <b>Demo view</b>. Realistic sample data so every flow can be tried, including the new dispatch confirmation step. Switch to <b>Clean</b> in the header for the same console with no sample records.</span><span class="mono">build 1.2.8-staging · Cabot, AR</span></div></footer>
+  </div>
+</div>
+
+<!-- Dispatch confirmation modal -->
+<div class="overlay" id="dispatchOverlay" role="dialog" aria-modal="true" aria-labelledby="dTitle">
+  <div class="modal">
+    <div class="modal-h"><h3 id="dTitle">Review &amp; confirm dispatch</h3><p>This is the confirmation step. Nothing has been sent yet — review the hit below, then confirm.</p></div>
+    <div class="modal-b">
+      <div class="step-dots"><span class="step-dot on">1</span><b>Review hit</b><span>→</span><span class="step-dot" id="dStep2">2</span><span>Verify</span><span>→</span><span class="step-dot">3</span><span>Dispatch</span></div>
+      <div class="dispatch-summary">
+        <div class="plate-row"><span class="plate" id="dPlate" style="min-width:104px">—</span><span class="badge b-red" id="dType">—</span><span class="badge b-grey mono" id="dCase">—</span></div>
+        <div class="d-desc" id="dDesc">—</div>
+        <div class="d-where" id="dWhere">—</div>
+      </div>
+      <label class="checkline"><input type="checkbox" id="dVerify" onchange="document.getElementById('dConfirmBtn').disabled=!this.checked;document.getElementById('dStep2').classList.toggle('on',this.checked)"><span><b>I verified this plate read</b> against the camera image and the details above are correct for <span id="dActionInline">dispatch</span>.</span></label>
+      <div class="notice" style="margin:12px 0 0"><b>What happens on confirm:</b> <span id="dWhat">Units are dispatched, the hit clears from the queue, and the disposition is written to the audit chain.</span> Cancelling leaves the hit untouched in the queue.</div>
+    </div>
+    <div class="modal-f"><button class="btn" onclick="closeDispatch()">Cancel — back to queue</button><button class="btn primary" id="dConfirmBtn" disabled onclick="confirmDispatch()">Confirm &amp; dispatch</button></div>
+  </div>
+</div>
+
+<!-- Release modal -->
+<div class="overlay" id="releaseOverlay" role="dialog" aria-modal="true" aria-labelledby="relTitle">
+  <div class="modal">
+    <div class="modal-h"><h3 id="relTitle">Two-key release</h3><p id="relSub">Releasing requires two different authorized operators, in sequence. Both turns are written to the audit chain.</p></div>
+    <div class="modal-b">
+      <div class="field"><label>Key 1 — releasing operator</label><select id="key1"><option value="">Select operator…</option><option>Sgt. D. Keller (you)</option><option>Lt. A. Osei</option><option>Det. M. Alvarez</option></select></div>
+      <div class="field"><label>Key 2 — confirming operator (must differ)</label><select id="key2"><option value="">Select operator…</option><option>Sgt. D. Keller (you)</option><option>Lt. A. Osei</option><option>Det. M. Alvarez</option></select></div>
+      <div class="field"><label>Release reason <span class="req" style="color:var(--red)">*</span></label><input id="relReason" placeholder="e.g. Order vacated, 2026-DR-221 — court filing attached"></div>
+      <div class="notice" style="margin:0"><b>Fence check:</b> divergence D-118 is unaccepted. This release will be recorded as attempted under a standing fence and cannot complete until the divergence is accepted or escalated.</div>
+    </div>
+    <div class="modal-f"><button class="btn" onclick="closeRelease()">Cancel</button><button class="btn danger" onclick="confirmRelease()">Turn both keys &amp; release</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+var titles={hits:['Hits Queue','Unverified matches awaiting disposition'],search:['Search','Quick contemporaneous & Tier 3 historical'],holds:['Suppressions & Holds','Protection orders · evidence holds · two-key release'],approvals:['Hotlist Approvals','Supervisor review of submitted entries'],audit:['Audit Log','Hash-chained · append-only'],health:['System Health','Fence · ceremony · enrollment']};
+function switchView(name){
+  document.querySelectorAll('.view').forEach(function(v){v.classList.remove('active')});
+  var el=document.getElementById('view-'+name); void el.offsetWidth; el.classList.add('active');
+  document.querySelectorAll('#nav button').forEach(function(b){b.classList.toggle('active',b.dataset.view===name)});
+  document.getElementById('pageTitle').textContent=titles[name][0];
+  document.getElementById('pageSub').textContent=titles[name][1]+' · Thu Nov 26, 2026 · CT';
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+document.getElementById('nav').addEventListener('click',function(e){var b=e.target.closest('button[data-view]');if(b)switchView(b.dataset.view)});
+
+var toastTimer;
+function toast(msg){
+  var t=document.getElementById('toast'); t.textContent='✓  '+msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(function(){t.classList.remove('show')},3400);
+}
+
+function disposition(btn,label){
+  var hit=btn.closest('[data-hit]'); if(!hit)return;
+  hit.classList.add('leaving');
+  setTimeout(function(){
+    hit.remove();
+    var left=document.querySelectorAll('[data-hit]').length;
+    document.getElementById('statUnverified').textContent=left;
+    document.getElementById('navHits').textContent=left;
+    if(left===0){document.getElementById('hitList').innerHTML='<div class="empty">Queue clear — every hit has a disposition on the chain.</div>'}
+    toast(label+' · written to audit chain');
+  },260);
+}
+
+function setSearchMode(mode){
+  document.getElementById('segQuick').classList.toggle('active',mode==='quick');
+  document.getElementById('segTier3').classList.toggle('active',mode==='tier3');
+  document.getElementById('searchQuick').style.display=mode==='quick'?'block':'none';
+  document.getElementById('searchTier3').style.display=mode==='tier3'?'block':'none';
+}
+function runQuickSearch(){
+  var plate=document.getElementById('qPlate').value.trim();
+  var kase=document.getElementById('qCase').value.trim();
+  if(!kase){toast('A case number is required for every search');document.getElementById('qCase').focus();return}
+  var box=document.getElementById('quickResults');
+  box.innerHTML='<div class="card"><div class="card-h"><h3>Results · last 24 hours</h3><span class="badge b-green">Case '+escapeHtml(kase)+'</span></div>'
+    +(plate
+      ? '<div class="rowitem"><div class="grow"><div class="t mono">'+escapeHtml(plate.toUpperCase())+' — 2 reads</div><div class="s">CAM-04 Hwy 321 N @ Main St · 22:47 CT (hotlist match — see Hits Queue)<br>CAM-06 Hwy 321 S @ Bill Foster Hwy · 06:12 CT · no match at time of read</div></div><span class="badge b-grey mono">audit-logged</span></div>'
+      : '<div class="empty">Enter a plate to see contemporaneous reads. One suppressed reference in this window is not shown — blocked entries return keyed references only, in Audit.</div>')
+    +'</div>';
+  box.firstElementChild.style.animation='viewIn .3s ease both';
+  toast('Quick search executed · logged under '+kase);
+}
+function submitTier3(){
+  var plate=document.getElementById('tPlate').value.trim(), kase=document.getElementById('tCase').value.trim(),
+      inst=document.getElementById('tInstrument').value, instNo=document.getElementById('tInstrumentNo').value.trim(),
+      just=document.getElementById('tJust').value.trim(), attest=document.getElementById('tAttest').checked;
+  if(!plate||!kase||!inst||!instNo||!just||!attest){toast('Tier 3 needs plate, case, instrument, justification, and attestation');return}
+  var ref='href:'+Math.random().toString(16).slice(2,6)+'…'+Math.random().toString(16).slice(2,6);
+  var row=document.createElement('div'); row.className='rowitem'; row.style.animation='viewIn .3s ease both';
+  row.innerHTML='<div class="grow"><div class="t mono">'+ref+' <span class="badge b-amber">Awaiting 2nd supervisor</span></div><div class="s">Requested by Sgt. Keller (you) · just now · Case '+escapeHtml(kase)+' · '+escapeHtml(inst)+' '+escapeHtml(instNo)+'<br>Plate held as keyed reference until approval — no data returned yet.</div></div>';
+  var list=document.getElementById('tier3List'); list.prepend(row);
+  var n=list.querySelectorAll('.rowitem').length;
+  document.getElementById('tier3Count').textContent=n+' awaiting';
+  toast('Tier 3 request submitted · pending second supervisor · audit-logged');
+}
+function escapeHtml(s){return s.replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+
+function decideAppr(btn,approved){
+  var row=btn.closest('[data-appr]'); if(!row)return;
+  var plate=row.querySelector('.plate').firstChild.textContent.trim();
+  row.classList.add('leaving');
+  setTimeout(function(){
+    row.remove();
+    var left=document.querySelectorAll('[data-appr]').length;
+    var nav=document.getElementById('navAppr'); nav.textContent=left; if(left===0)nav.style.display='none';
+    if(left===0){document.getElementById('apprList').innerHTML='<div class="empty">No pending submissions — the hotlist queue is clear.</div>'}
+    var d=document.createElement('div'); d.className='rowitem'; d.style.animation='viewIn .3s ease both';
+    d.innerHTML='<div class="grow"><div class="t mono">'+plate+' <span class="badge '+(approved?'b-green">Approved · active':'b-red">Rejected')+'</span></div><div class="s">'+(approved?'Approved':'Rejected')+' by you · just now · written to audit chain</div></div>';
+    document.getElementById('decidedList').prepend(d);
+    toast(approved?('Hotlist entry '+plate+' approved and now active'):('Hotlist entry '+plate+' rejected · returned to submitter'));
+  },260);
+}
+
+/* ---- Dispatch confirmation ---- */
+var dispatchCtx=null;
+function openDispatch(btn,label){
+  var hit=btn.closest('[data-hit]'); if(!hit)return;
+  dispatchCtx={btn:btn,label:label};
+  var plateEl=hit.querySelector('.plate');
+  var plate=plateEl?plateEl.firstChild.textContent.trim():'—';
+  var badges=hit.querySelectorAll('.hit-meta .top .badge');
+  var descEl=hit.querySelector('.hit-meta .desc');
+  var whereEl=hit.querySelector('.hit-meta .where');
+  document.getElementById('dPlate').innerHTML=escapeHtml(plate)+'<small>ARKANSAS</small>';
+  document.getElementById('dType').textContent=badges[0]?badges[0].textContent.trim():'HIT';
+  document.getElementById('dCase').textContent=badges[1]?badges[1].textContent.trim():'';
+  document.getElementById('dDesc').textContent=descEl?descEl.textContent.trim():'';
+  document.getElementById('dWhere').textContent=whereEl?whereEl.textContent.trim():'';
+  var isASP=label.indexOf('State Police')>-1, isNotify=label.indexOf('detective notified')>-1;
+  var actionWord=isASP?'notifying Arkansas State Police':(isNotify?'notifying the case detective':'dispatch');
+  document.getElementById('dActionInline').textContent=actionWord;
+  document.getElementById('dTitle').textContent=isASP?'Review & confirm — notify State Police':(isNotify?'Review & confirm — notify detective':'Review & confirm dispatch');
+  document.getElementById('dConfirmBtn').textContent=isASP?'Confirm & notify ASP':(isNotify?'Confirm & notify':'Confirm & dispatch');
+  document.getElementById('dWhat').textContent=isASP?'Arkansas State Police are notified, the hit clears from the queue, and the disposition is written to the audit chain.':(isNotify?'The case detective is notified, the hit clears from the queue, and the disposition is written to the audit chain.':'Units are dispatched, the hit clears from the queue, and the disposition is written to the audit chain.');
+  document.getElementById('dVerify').checked=false;
+  document.getElementById('dConfirmBtn').disabled=true;
+  document.getElementById('dStep2').classList.remove('on');
+  document.getElementById('dispatchOverlay').classList.add('open');
+}
+function closeDispatch(){document.getElementById('dispatchOverlay').classList.remove('open');dispatchCtx=null}
+document.getElementById('dispatchOverlay').addEventListener('click',function(e){if(e.target===this)closeDispatch()});
+function confirmDispatch(){
+  if(!dispatchCtx)return;
+  var btn=dispatchCtx.btn,label=dispatchCtx.label;
+  document.getElementById('dispatchOverlay').classList.remove('open');
+  dispatchCtx=null;
+  disposition(btn,label);
+}
+
+/* ---- Clean / Demo mode ---- */
+var currentMode='demo';
+var savedStats=null;
+function setMode(mode){
+  if(mode===currentMode)return;
+  currentMode=mode;
+  var clean=mode==='clean';
+  document.body.classList.toggle('clean-mode',clean);
+  document.getElementById('modeDemo').classList.toggle('active',!clean);
+  document.getElementById('modeClean').classList.toggle('active',clean);
+  document.getElementById('modePill').innerHTML=clean?'<span class="dot"></span>Clean view · no sample records':'<span class="dot amber"></span>Demo data';
+  if(clean){
+    savedStats={
+      unverified:document.getElementById('statUnverified').textContent,
+      navHits:document.getElementById('navHits').textContent,
+      navHolds:document.getElementById('navHolds').textContent,
+      navAppr:document.getElementById('navAppr').textContent,
+      reads:document.getElementById('statReads').textContent,
+      readsD:document.getElementById('statReadsD').textContent,
+      rate:document.getElementById('statRate').textContent,
+      rateD:document.getElementById('statRateD').textContent,
+      avg:document.getElementById('statAvg').textContent
+    };
+    document.getElementById('statUnverified').textContent='0';
+    document.getElementById('navHits').textContent='0';
+    document.getElementById('navHolds').textContent='0';
+    document.getElementById('navAppr').textContent='0';
+    document.getElementById('statReads').textContent='0';
+    document.getElementById('statReadsD').textContent='Clean view — counts reset';
+    document.getElementById('statRate').textContent='—';
+    document.getElementById('statRateD').textContent='No reads in clean view';
+    document.getElementById('statAvg').textContent='—';
+    document.getElementById('footerNote').innerHTML='<b>NOCTUA 1.2.8</b> · Operator Console — <b>Clean view</b>. The same console with no sample records — empty queues and zeroed counts, as it looks before live data flows in. Switch to <b>Demo</b> in the header to try the flows.';
+    toast('Clean view — sample records hidden, queues empty');
+  }else{
+    if(savedStats){
+      document.getElementById('statUnverified').textContent=savedStats.unverified;
+      document.getElementById('navHits').textContent=savedStats.navHits;
+      document.getElementById('navHolds').textContent=savedStats.navHolds;
+      document.getElementById('navAppr').textContent=savedStats.navAppr;
+      document.getElementById('statReads').textContent=savedStats.reads;
+      document.getElementById('statReadsD').textContent=savedStats.readsD;
+      document.getElementById('statRate').textContent=savedStats.rate;
+      document.getElementById('statRateD').textContent=savedStats.rateD;
+      document.getElementById('statAvg').textContent=savedStats.avg;
+    }
+    document.getElementById('footerNote').innerHTML='<b>NOCTUA 1.2.8</b> · Operator Console — <b>Demo view</b>. Realistic sample data so every flow can be tried, including the new dispatch confirmation step. Switch to <b>Clean</b> in the header for the same console with no sample records.';
+    toast('Demo view — sample data restored');
+  }
+}
+
+/* Two-key release */
+var releaseCtx=null;
+function openRelease(btn,kind,ref){
+  releaseCtx={row:btn.closest('.rowitem'),kind:kind,ref:ref};
+  document.getElementById('relTitle').textContent='Two-key release — '+kind;
+  document.getElementById('relSub').textContent='Releasing '+ref+'. Two different authorized operators, in sequence. Both turns are written to the audit chain.';
+  document.getElementById('releaseOverlay').classList.add('open');
+}
+function closeRelease(){document.getElementById('releaseOverlay').classList.remove('open')}
+document.getElementById('releaseOverlay').addEventListener('click',function(e){if(e.target===this)closeRelease()});
+function confirmRelease(){
+  var k1=document.getElementById('key1').value, k2=document.getElementById('key2').value, reason=document.getElementById('relReason').value.trim();
+  if(!k1||!k2){toast('Both keys are required');return}
+  if(k1===k2){toast('Key 1 and Key 2 must be different operators');return}
+  if(!reason){toast('A release reason is required');return}
+  var slots=releaseCtx.row.querySelectorAll('[data-k]');
+  slots[0].textContent='Key 1 — '+k1.split('(')[0].trim(); slots[0].classList.add('filled');
+  setTimeout(function(){
+    slots[1].textContent='Key 2 — '+k2.split('(')[0].trim(); slots[1].classList.add('filled');
+    setTimeout(function(){
+      closeRelease();
+      toast('Release BLOCKED by standing fence — attempt chained to audit log. Accept or escalate divergence D-118 first.');
+      slots.forEach(function(s){s.classList.remove('filled')});
+      slots[0].textContent='Key 1 — — —'; slots[1].textContent='Key 2 — — —';
+    },650);
+  },450);
+}
+document.addEventListener('keydown',function(e){if(e.key==='Escape'){closeRelease();closeDispatch()}});
+</script>
+</body>
+</html>
