@@ -305,3 +305,63 @@ owl's aria-label, body copy, and the footer now say SURNIA. Every
 flow — simulated sign-ins, the two-key release, the answer-key fence
 walk, the A/B dispatch dialog, the roadside photos — is draft 6
 unchanged, and drafts 1–6 are untouched, byte for byte.
+
+## 2026-11-27 — draft 8: the presentation build
+
+File: `console-draft-2026-11-27-4.html` (single self-contained HTML
+file; open it in any browser). This is draft 7 hardened for live
+presentation — Corey will demo it to officials and colleagues with no
+live API and no cameras behind it, so the pass was about the demo
+never contradicting or stranding him: every control works, every flow
+completes, and every number on every screen agrees with every other.
+No design, layout, or feature changes; drafts 1–7 are untouched.
+
+**What changed.**
+
+- **Actions that said "written to audit chain" now write one.** In
+  draft 7, hit dispositions (including dispatch confirmations),
+  hotlist decisions, quick searches, Tier 3 submissions, and the
+  health snapshot toasted a claim the Audit Log never backed — the
+  entry count didn't move. All five now chain a real entry through the
+  same addAuditEntry path the sign-ins and releases use, and the
+  decided rows, result badges, and toasts cite the actual entry
+  number.
+- **Counts that went stale are live now.** The Verify-chain toast
+  hardcoded "88,412 entries", the Refresh toast hardcoded "4
+  unverified hits", and the topbar "3 approvals pending" pill never
+  changed when approvals were decided. All three compute from the
+  current state, and the Demo/Clean toggle keeps the pill truthful in
+  both modes.
+- **Three data contradictions fixed.** The "Oldest waiting" stat said
+  11 minutes; the queue's own timestamps say 33 (oldest hit 22:18:57,
+  chain head 22:52:03) — corrected, and it recomputes as hits are
+  dispositioned. The decided-this-shift list cited audit #88397 for
+  the 18:12 CAB-2026-1160 approval the chain records as #88405 —
+  corrected. The verified RTA 610 card said "Confirmed by Ofc. Ruiz
+  at 21:58" while the audit entry it cites (#88412) records Sgt.
+  Keller at 22:52:03 — the card now matches the chain.
+- **Quick search tells the truth about plates it doesn't know.** It
+  used to return the same two reads for any plate typed. Results are
+  now driven by the five sample reads themselves; an unknown plate
+  gets an honest "no reads in the last 24 hours" (the search itself
+  is still logged).
+- **Live entries keep demo time.** New audit entries were stamped
+  with the presenter's real wall clock, breaking the demo's
+  Nov 26, 22:52 chronology mid-presentation. The clock now continues
+  from the chain head (22:52:03 + elapsed time since page load).
+- **Small truths.** A Tier 3 submission now names the operator
+  actually signed in (it hardcoded Sgt. Keller), and the link-card
+  description carries the framing too: "demonstration with simulated
+  data".
+
+**Verification.** Beyond the static audit (every control enumerated
+and traced; every number, plate, case, and timestamp reconciled
+across screens), the build was driven end-to-end in a headless
+browser: 55 assertions covering all six views, the dispatch dialog's
+attestation gate, both search tiers, hotlist decisions, the blocked
+release under a standing fence, the refused Keller self-acceptance,
+the Osei acceptance clearing F-07, the completed two-key release,
+failed sign-ins, the hardware-key path, sign-out, the health
+snapshot, and the Demo/Clean round-trip — 55/55 passed with zero
+page errors. The full record is in the presentation kit's handoff
+(`~/workspace/noctua-1.0/presentation/HANDOFF.md`).
