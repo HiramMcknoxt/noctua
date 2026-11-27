@@ -1,6 +1,8 @@
-# Project NOCTUA — a city-owned, open-source ALPR design for Cabot, Arkansas
+# Project SURNIA — a city-owned, open-source ALPR design for Cabot, Arkansas
 
 **Status: design and reference implementation. Nothing in this repository is deployed, and nothing here authorizes capturing a single plate.**
+
+**Name (Nov 27, 2026):** this system was renamed **SURNIA** — for the northern hawk-owl, *Surnia ulula* — on Nov 27, 2026. It was developed and reviewed under the name NOCTUA; the review-round records, version folders, and UI drafts 1–6 in this repository keep that name, as the record of what they were.
 
 > ## ⚠️ DEVELOPMENT BUILDS — NOT DEPLOYMENT-READY
 >
@@ -43,7 +45,7 @@ stand.
 
 Cabot, Arkansas (pop. ~26k) currently leases 9 Flock ALPR cameras (8 Falcon + 1 Flex; $27,500 invoiced in 2026 — invoiced, not shown paid — on staggered 24-month tranches; the hardware remains Flock's). The department's own reported figures for Jan. 1 – Jun. 30, 2026: 8,040,000 plates scanned, 688 hot-list matches (8.56 per 100,000 reads), 7 stolen vehicles recovered, 19 arrests.
 
-This repository is the working design for a possible city-owned alternative: commodity LPR cameras, open-source detection/OCR, all data on a city server, designed in the open by a Citizens Commission, and implemented only if the City Council separately authorizes it after a public hearing. NOCTUA is a codename (the little owl, *Athene noctua*); the formal documents keep their plain titles.
+This repository is the working design for a possible city-owned alternative: commodity LPR cameras, open-source detection/OCR, all data on a city server, designed in the open by a Citizens Commission, and implemented only if the City Council separately authorizes it after a public hearing. SURNIA is named for the northern hawk-owl (*Surnia ulula*) — the owl that watches in the open; the formal documents keep their plain titles.
 
 ## NOCTUA 1.0 (Nov 24, 2026)
 
@@ -70,7 +72,7 @@ round.
 
 Two design documents are published as **draft specifications — not built**:
 the **Prytaneum** credentialing mechanism (`credentialing/`), under which a
-credentialing foundation could certify cities to run NOCTUA on 90-day timed
+credentialing foundation could certify cities to run SURNIA on 90-day timed
 certificates and revoke certification for abuse, and **ARGUS v0.2**
 (`argus/`), a read-only advisory LLM monitor design (no system credentials,
 its output never a daemon input).
@@ -111,8 +113,8 @@ This design was put through a hostile review by four AI systems before any of it
 
 ## License
 
-The NOCTUA code in this repository is licensed under the **GNU Affero General Public License v3 (AGPLv3)** — see [`LICENSE`](LICENSE) for the full text. The AGPL's copyleft, including its network-use clause, means anyone who distributes the code or runs a modified version as a network service must offer that version's source under the same license: no one can close it and sell it back.
+The SURNIA code in this repository is licensed under the **GNU Affero General Public License v3 (AGPLv3)** — see [`LICENSE`](LICENSE) for the full text. The AGPL's copyleft, including its network-use clause, means anyone who distributes the code or runs a modified version as a network service must offer that version's source under the same license: no one can close it and sell it back.
 
-The license covers the code only. It does **not** license the NOCTUA name or the owl mark, which are reserved to the project's distributing steward, The Stoic Opposition. Forks are welcome under the AGPL, but a fork may not call itself NOCTUA or use the owl.
+The license covers the code only. It does **not** license the SURNIA name or the owl mark, which are reserved to the project's distributing steward, The Stoic Opposition. Forks are welcome under the AGPL, but a fork may not call itself SURNIA or use the owl.
 
 Built for public reuse by any city asking the same questions. Read the spec's source notes before quoting any figure: other cities' numbers are reported figures, not quotes, and Cabot's cost figures are qualified planning estimates, not bids.

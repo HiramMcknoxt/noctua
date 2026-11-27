@@ -1,4 +1,9 @@
-# NOCTUA — Releases index
+# SURNIA — Releases index
+
+**Rename note (Nov 27, 2026):** this system was renamed **SURNIA** on
+Nov 27, 2026. Every version indexed below was built, reviewed, and
+released under the former name, NOCTUA; the per-version record is
+kept as it was written.
 
 **Every version listed here is a DEVELOPMENT BUILD — NOT DEPLOYMENT-READY.**
 No version in this repository is approved for deployment or for operating a
