@@ -1,4 +1,4 @@
-# ARGUS — NOCTUA's Watchman
+# ARGUS — SURNIA's Watchman
 ## Spec v0.2 — DRAFT for council review, not built (Nov 25, 2026)
 
 **ARGUS** — named for Argus Panoptes, the hundred-eyed watchman of
@@ -92,15 +92,15 @@ ARGUS host, dual-NIC. The round: the same-host form fails the
 threat model. **v0.2: if research exists at all, it is on
 separate hardware.** There is no same-host option in this spec.
 
-**D6 — ARGUS lived on the NOCTUA server (v0.1, Model and
+**D6 — ARGUS lived on the SURNIA server (v0.1, Model and
 runtime / The machine).** v0.1 ran the analyst model on the
-NOCTUA server's own GPU, time-shared with the plate pipeline,
+SURNIA server's own GPU, time-shared with the plate pipeline,
 with load-shedding rules so the watchman could not starve the
 watched. Corey's model decision (Nov 25, 2026) and the round's
 separate-hardware direction converge: **v0.2 puts the whole
 watch floor on its own host.** No GPU contention with plate
 recognition exists to be managed, because the components share
-no hardware. The NOCTUA server's sizing reverts to the pilot
+no hardware. The SURNIA server's sizing reverts to the pilot
 spec's own figures; this document sizes only the watch host
 (see The watch host).
 
@@ -125,7 +125,7 @@ humans it alerts.
 ## What ARGUS is
 
 A locally hosted LLM system on its own hardware — the watch
-host — that watches NOCTUA's *outputs* and works two jobs in
+host — that watches SURNIA's *outputs* and works two jobs in
 the pilot, with a third specified but deferred:
 
 1. **Anomaly review.** Reads the external Sentinel sink stream
@@ -350,7 +350,7 @@ version):
 
 An LLM autonomously rewriting a live law-enforcement data
 system on its own authority is precisely the failure mode
-NOCTUA exists to prevent. Tier B is designed so ARGUS can do
+SURNIA exists to prevent. Tier B is designed so ARGUS can do
 everything up to the line — find it, prove it, fix it on paper,
 prove the fix — and a person still turns every key from there.
 
@@ -460,7 +460,7 @@ the review log. That list is the whole of its reach.
 **Sizing — candidate model classes vs. watch-host tiers.**
 All figures are planning estimates, not quotes — re-price and
 re-benchmark at purchase, against the actual sink volume
-(~44,400 reads/day is the NOCTUA side's figure; the sink
+(~44,400 reads/day is the SURNIA side's figure; the sink
 segment rate the advisor must chew is a chain-entry rate, far
 smaller).
 
@@ -494,9 +494,9 @@ smaller).
 
 ## The watch host
 
-A separate, ordinary machine — deliberately not the NOCTUA
+A separate, ordinary machine — deliberately not the SURNIA
 server, and sized only for the watch floor (advisor + daemon +
-spool + log). The NOCTUA server itself is specced by the pilot
+spool + log). The SURNIA server itself is specced by the pilot
 spec; v0.1's combined-machine tables do not carry over.
 
 | Component | Pilot (reference tier) | Notes |
@@ -506,10 +506,10 @@ spec; v0.1's combined-machine tables do not carry over.
 | RAM | 64–128 GB | 128 GB if CPU inference is a planned fallback mode |
 | Storage | 2× 2 TB NVMe, mirrored | Sink spool retention + review log + model weights; the spool is a copy — its loss loses no original data |
 | Network | 2× NICs (enclave-facing watch VLAN / management), no bridging, IP forwarding disabled | No internet route in pilot configuration; firewall default-deny both directions, rule files in the deployment record |
-| Power | UPS with chained graceful shutdown, shared with or matched to the NOCTUA server's practice | A dead watchman must be visible: the daemon's absence is itself reported by the Janus side's heartbeat expectations for the anchor schedule — a missed anchor is a chained, health-visible event, not a silent gap |
-| Planning estimate | **~$2,500–$4,500** with GPU; **~$1,200–$2,000** GPU-less (estimates, not quotes — re-price at purchase) | Excludes the NOCTUA server, cameras, and network gear, which the pilot spec already carries |
+| Power | UPS with chained graceful shutdown, shared with or matched to the SURNIA server's practice | A dead watchman must be visible: the daemon's absence is itself reported by the Janus side's heartbeat expectations for the anchor schedule — a missed anchor is a chained, health-visible event, not a silent gap |
+| Planning estimate | **~$2,500–$4,500** with GPU; **~$1,200–$2,000** GPU-less (estimates, not quotes — re-price at purchase) | Excludes the SURNIA server, cameras, and network gear, which the pilot spec already carries |
 
-Physical and platform posture matches the NOCTUA server's:
+Physical and platform posture matches the SURNIA server's:
 locked room, TPM 2.0, Secure Boot, full-disk encryption with
 an operator-held passphrase.
 
@@ -578,7 +578,7 @@ an operator-held passphrase.
   new spec and a new round.
 - Automatic rollback of anything — out, permanently (D1).
 - Cloud inference for any chain material — out, permanently.
-- ARGUS co-residency on the NOCTUA server — out (D6).
+- ARGUS co-residency on the SURNIA server — out (D6).
 - Compact cross-audit *analysis* beyond reading the chained
   status the export already carries — the advisor reads what
   the export holds; it does not query partner systems (it

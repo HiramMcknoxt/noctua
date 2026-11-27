@@ -1,4 +1,4 @@
-# The Prytaneum — Credentialing for NOCTUA
+# The Prytaneum — Credentialing for SURNIA
 
 ## Spec v0.1 — DRAFT for council review, not built (Nov 25, 2026)
 
@@ -8,7 +8,7 @@ city founded a colony, the colonists carried fire from the
 mother city's prytaneum to light the new city's hearth: the
 flame was the same fire, and carrying it was the act that made
 the new city a city. The Prytaneum is the foundation that keeps
-that fire for NOCTUA — it certifies the cities that run the
+that fire for SURNIA — it certifies the cities that run the
 system, carries the system to new cities (the golden image
 travels on the Prytaneum drive), and can, under published rules
 and with due process, let a city's fire go out. This document
@@ -16,7 +16,7 @@ is the combined charter skeleton and technical mechanism spec
 for that foundation.
 
 Status gate: this is a draft for council review. It is not
-built, and building remains gated on NOCTUA code convergence
+built, and building remains gated on SURNIA code convergence
 and Corey's explicit go after review. The design decisions in
 §2 are Corey's, directed Nov 25, 2026, and are not open for
 relitigation by reviewers; the numbers marked **[charter
@@ -24,7 +24,7 @@ parameter]** are recommendations for the charter to set, and
 the governance questions in §13 are Corey's to answer. Nothing
 in this spec authorizes any code change to Janus or Sentinel.
 
-The one-sentence version: **a city runs NOCTUA under a signed,
+The one-sentence version: **a city runs SURNIA under a signed,
 time-boxed credential from the foundation; the credential is
 verified entirely offline, renewed quarterly by an affirmative
 act of the foundation, and revocable only by multiple signers
@@ -45,7 +45,7 @@ state the credential is presented inside).
 ## 1. What the Prytaneum is, and is not
 
 **It is** a credentialing foundation. It publishes a set of
-operating rules for running NOCTUA. A city that adopts the
+operating rules for running SURNIA. A city that adopts the
 rules signs the license agreement and receives a credential: a
 signed, time-limited statement by the foundation that this
 install, bound to this signing key, is certified. The genuine
@@ -62,7 +62,7 @@ foundation to ask permission to run, and the foundation cannot
 reach into a running system. Every check in this spec is a
 local verification of a signed artifact the city already holds
 — the same posture as the Compact's checkpoints and the ACIC
-hot-list file, both of which NOCTUA already verifies offline.
+hot-list file, both of which SURNIA already verifies offline.
 
 **It is not** a kill switch. Revocation is slow on purpose:
 notice, a response window, a threshold-signed decision, a
@@ -240,7 +240,7 @@ dashboard reads the same chained facts the auditor does.
 
 ### 4.3 Lab mode
 
-`NOCTUA_LAB=1` is unaffected. Lab installs carry no credential,
+`SURNIA_LAB=1` is unaffected. Lab installs carry no credential,
 make no production captures, and are refused on a provisioned
 install under the existing 1.2.7 rule. The credential gate
 binds production posture only.
@@ -460,7 +460,7 @@ This section is a first-class requirement of the mechanism,
 not a contingency footnote. A credentialing system that bricks
 every member city when its foundation is defunded, dissolved,
 or simply loses its keys has reproduced, at the center, the
-exact single-point-of-control failure NOCTUA exists to remove
+exact single-point-of-control failure SURNIA exists to remove
 from the edge. The foundation must be **unable** to take the
 cities down with it — by accident, by insolvency, or by
 capture.
@@ -653,7 +653,7 @@ Compact's rule (no cross-audit, no data) is exclusion.
 
 ### 10.1 What a fork is, here
 
-The NOCTUA source is public. A city whose credential is
+The SURNIA source is public. A city whose credential is
 revoked can download the source, delete the credential check,
 and run the result. Nothing in this spec pretends otherwise,
 and any version of this mechanism that did pretend otherwise
@@ -680,7 +680,7 @@ city cared about when it sought certification**.
   packages are foundation-signed and hash-verifiable. A fork
   maintains itself: every future security fix, every battery,
   every council round is theirs to reproduce alone. The
-  entire verification apparatus that makes NOCTUA credible —
+  entire verification apparatus that makes SURNIA credible —
   the rounds, the cold re-runs, the signed releases — is a
   service of the genuine line.
 - **ARGUS.** The watchman ships to credentialed installs
@@ -1084,5 +1084,42 @@ constants of the code.
 | Orphan threshold | 45 days past expiry, filed request unanswered | 8.1 |
 | Wind-down window | 12 months from first orphan trigger | 8.4 |
 | Clock-skew tolerance | 1 hour | 12.1 |
+
+---
+
+## Amendment 1 — hardware second factors (Corey, Nov 27, 2026)
+
+The operator second factor as built is TOTP: the rotating code an
+authenticator app generates (2FA-SCOPE, Nov 24, 2026 — Google
+Authenticator, Authy, 1Password). This amendment admits hardware
+tokens as an enrollment factor of equal standing, so a department
+can issue a physical object instead of relying on a personal phone.
+
+1. **FIDO2 / WebAuthn security keys — the preferred hard token.**
+   Phishing-resistant, no shared secret to extract, no battery or
+   clock to drift. A supervisor's key is a physical object the
+   department issues, inventories, and takes back — which fits the
+   two-key ceremony model literally: the key that turns is a key.
+2. **Programmable hardware TOTP tokens — the alternate.** Seeded
+   display tokens ride the existing TOTP verification path and the
+   `totp` state block unchanged. Their limits are recorded, not
+   discovered later: a shared secret exists, clocks drift, and they
+   carry no phishing resistance. Use where WebAuthn is impractical,
+   not as the default.
+
+Rules: an operator may enroll an authenticator app, a FIDO2 key,
+or both; sign-in, releases, and ceremony acts accept any enrolled
+factor. Factor enrollment and revocation run through the same
+credential state machine as every other credential in this spec,
+and `/health` surfaces a `webauthn` block beside the existing
+`totp` block. Losing a hard token is a revocation event under §6,
+nothing more. The §7 never-stop table is unchanged: a lost or
+unavailable token never blocks Tier 3 under existing legal
+process, suppressions, retention/deletion, evidence, or exports.
+
+Status: spec decision of record. Implementation is pilot-phase
+work, alongside the 1.2.9 hardening tranche; the converged 1.2.8
+code is authenticator-TOTP only, and this amendment does not
+reopen convergence.
 
 *End of SPEC-v0.1.*
