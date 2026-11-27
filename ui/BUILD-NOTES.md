@@ -149,3 +149,73 @@ Everything else carries over from draft 2: the six surfaces, the Tier 3
 gate, two-key release, the Demo / Clean toggle, the rounded styling,
 and the hovering owl mark. Still a design prototype on synthetic sample
 data, awaiting Corey's hands-on feel test.
+
+## 2026-11-26 — draft 4: the key, and real cars on real roads
+
+File: `console-draft-2026-11-26-4.html` (single self-contained HTML
+file; open it in any browser). This draft is larger than drafts 1–3
+(1,353,774 bytes) because the four camera photos are real photographs,
+inlined into the file as data URIs — the file still has no external
+assets beyond the Google Fonts stylesheets drafts 1–3 also used.
+
+**What changed — the fence is now a door with a key.** In drafts 1–3,
+Suppressions & Holds stood behind the anchor fence, and every two-key
+release was refused: correct behavior, but a dead end for anyone trying
+the console. Corey's verdict: **"I've seen the door, now let me see the
+key."** The refusal is now the start of a walkable ceremony instead of
+the end of one:
+
+- **The Answer Key.** Suppressions & Holds carries a 4-step answer key
+  that walks the standing divergence **D-118** the way the real system
+  resolves one: open the divergence and compare the two checkpoints
+  side by side; accept it as a *second* supervisor; watch fence
+  **F-07** clear; then release.
+- **Refusals are logged, not just shown.** Acceptance is a two-key act:
+  Sgt. Keller — the supervisor who raised the divergence — cannot
+  accept his own checkpoint disagreement. Trying it is refused *and the
+  refusal is chained to the audit log*; escalating instead is also
+  offered, and also logged. A second supervisor (Lt. Osei) can accept,
+  and the acceptance is what clears the fence.
+- **The fence clears everywhere at once.** On acceptance, the header
+  pill, the Audit Log fence state, and System Health all flip to
+  Cleared / Unfenced together — one state, three views of it.
+- **Releases then complete.** With the fence down, a Release… takes two
+  different keys plus a reason, the row flips to **Released**, and the
+  holds count drops. Nothing about the two-key rule relaxed to make
+  this work — the ceremony was completed, not bypassed.
+- **"What gets logged for a release."** An in-page panel in
+  Suppressions & Holds answers the question Corey asked while testing:
+  both key-turners, the item, the time (CT), the reason, the fence
+  state, and the outcome are chained on *every* attempt — blocked
+  attempts included — while a suppressed vehicle's raw plate is never
+  logged, only its keyed `href:` reference.
+- **The Audit Log updates live.** The acceptance, the fence clearing,
+  blocked attempts, and completed releases appear at the top of the
+  log as they happen, with prev → hash links and a rising entry count,
+  so the whole ceremony can be watched in the chain.
+
+**What changed — the camera photos are cars on roads.** Corey asked
+for real pictures of vehicles matching the sample descriptions, the
+way a roadside camera actually catches a car. All four camera frames
+are now roadside-style photographs: a silver Ford F-150 stopped at a
+red light in a crosswalk, a blue Toyota Camry in motion on a city road
+(side profile), a white Chevrolet Tahoe rolling through an
+intersection, and a grey Subaru Outback crossing an intersection. No
+readable real plate appears in any of them; the sample plates and the
+rendered plate close-ups are unchanged, and the captions say plainly
+that the photos are stock stand-ins — the sample data is fictional, so
+there is no actual vehicle to photograph. In the real system this
+frame is the camera's own capture.
+
+**Correction, recorded honestly.** The first Camry photograph in this
+round was a car parked at a residential curb, and the caption under
+the queue claimed all four photos were caught on the road in motion —
+which overstated that one. The Camry photo was replaced with the
+in-motion shot above and the caption corrected before this draft was
+published.
+
+Everything else carries over from draft 3: the six surfaces, the A/B
+comparison panels and dispatch dialog, the Tier 3 gate, the Demo /
+Clean toggle, the rounded styling, and the hovering owl mark. Still a
+design prototype on synthetic sample data, awaiting Corey's hands-on
+feel test.
