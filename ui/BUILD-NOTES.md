@@ -219,3 +219,29 @@ comparison panels and dispatch dialog, the Tier 3 gate, the Demo /
 Clean toggle, the rounded styling, and the hovering owl mark. Still a
 design prototype on synthetic sample data, awaiting Corey's hands-on
 feel test.
+
+## 2026-11-27 — draft 5: the owl, in the tab
+
+File: `console-draft-2026-11-27.html` (single self-contained HTML
+file; open it in any browser). The only change from draft 4 is the
+page icon — everything else (the answer key, the logging panel, the
+roadside photos, the A/B dialog) is draft 4 unchanged. The file grows
+to 1,686,547 bytes because the PNG icon sizes are inlined as data
+URIs alongside the four camera photos; still no external assets
+beyond the Google Fonts stylesheets.
+
+**What changed.** Draft 4's head carried an empty placeholder
+favicon, so browser tabs and link cards had nothing to show and fell
+back to the host's generic letter. Corey spotted it on his phone —
+the console's link card wore a grey "H" — and asked for "the owl icon
+you made." The head now declares the NOCTUA owl, the sidebar's own
+gold-on-dark-navy mark:
+
+- an **SVG favicon** — the owl mark itself, inlined into the head;
+- **PNG icons at 192 and 512** for launchers and previews;
+- an **apple-touch-icon at 180**, so a home-screen save gets the owl
+  too;
+- a **theme-color** matching the mark's dark navy;
+- **Open Graph title, description, and image** (the 512 owl), so a
+  shared link previews with the owl and the console's name instead of
+  a placeholder letter.
