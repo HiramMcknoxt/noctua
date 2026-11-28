@@ -498,3 +498,64 @@ re-run in a headless browser: **117/117 passed, zero page errors**
 deleted, or altered). Static greps: zero "NOCTUA", zero "30-day",
 zero "512 reads". Full record:
 `~/workspace/noctua-1.0/presentation/HANDOFF-DRAFT10.md`.
+## 2026-11-27 — draft 11: the verified county inventory
+
+`ui/console-draft-2026-11-27-7.html` — draft 10 with the camera
+board, county roll-up and source labeling updated to the VERIFIED
+Lonoke County Flock inventory (live scan, 2026-11-27; full record:
+`county-spec/LONOKE-COUNTY-FLOCK-INVENTORY.md` in the project
+workspace). Still a simulation on synthetic data, under the same
+"Simulation — proposed multi-agency design, not in the 1.2.8 code"
+banner; no behavior, login, or scoping rule changed.
+
+- **Lonoke County Sheriff's Office: 6 → 9 board cameras.** The
+  Sheriff's own Flock transparency portal publishes 9 cameras —
+  evidence the Nov 24 findings did not have (they knew LCSO only
+  from a FOIA order). Three synthetic cameras (CAM-S07–S09) join
+  the board with the same scoping as the existing LCSO rows. The
+  FOIA figure is NOT deleted: the on-screen source note carries
+  both — portal 9 (whose template counts "LPR and other cameras"
+  together) and the FOIA order's 6 plan points at $24,000,
+  annual-vs-term unverified.
+- **Unattributed group (new).** Nine representative board rows for
+  the community-mapped points that fall outside the Cabot / Ward /
+  Humnoke place boundaries — including the 2 untagged-vendor
+  points on the US-70 corridor east of Lonoke city. The group
+  header states the honest accounting: "9 of 27 mapped — 10 of 28
+  on the HYAT outline; no operator tag in source data." These rows
+  belong to no agency: no hits, reads or searches attach to them,
+  and no agency login owns or searches them.
+- **The Home Depot point is a private operator row** — the
+  county's only operator-tagged mapped point — labeled private,
+  never counted as a Cabot PD camera, with a note that whether it
+  sits inside Cabot's 9 in-boundary mapped points is unresolved in
+  the source data.
+- **Source note, on screen.** Counts per the Nov 27, 2026 verified
+  scan: Cabot 9 = agency portal; LCSO 9 = agency portal total with
+  the FOIA qualifier above; Ward 8 / Humnoke 1 = community-mapped
+  points in place boundaries; county total 27–28 mapped by
+  boundary method; community-mapped is not an official inventory.
+- **"Checked — no cameras found" panel.** Lonoke PD, Carlisle PD,
+  England PD, Austin PD, Allport, Coy, Scott, Arkansas State
+  Police (in-county), Arkansas Highway Police and neighboring
+  agencies, with the caveat: "Checked Nov 27, 2026 — no evidence
+  found in mapping, portal, or records sources. Unmapped is not
+  proof of nonexistent."
+- **Totals.** Agency rows 9 / 8 / 1 / 9 = 27 agency-assigned
+  cameras, plus 9 unattributed mapped points and 1 private point
+  (37 board rows).
+
+**Verification.** Built by anchored replacements
+(`presentation/fix-draft11.py`, 12 fixes, every anchor asserted)
+on a pristine draft-10 copy. The click-through harness re-run:
+**128/128 passed, zero page errors** — all 117 draft-10 assertions
+pass, with exactly four updated where they encoded the old LCSO
+count (6) or a total derived from it (board 24 → 37 rows, Sheriff
+6 → 9, filter text "8 of 24" → "8 of 37", roll-up "24" → "27
+agency-assigned"); each still checks the exact count, and the
+changes are documented in `presentation/HANDOFF-DRAFT11.md`. Eleven
+new assertions cover the LCSO 9 count, the unattributed group and
+its label, the untagged-vendor pair, the private Home Depot row
+outside Cabot's count, the checked-none panel, and the source
+note's 27 / 28 / FOIA content. Static greps: zero "NOCTUA", zero
+"30-day", zero "512 reads".
