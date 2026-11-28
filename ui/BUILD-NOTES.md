@@ -442,3 +442,59 @@ zero "30-day", zero "512 reads". The full record is in the
 presentation kit's fix-pass handoff
 (`~/workspace/noctua-1.0/presentation/HANDOFF-DRAFT9.md`); the seat's
 report is `~/workspace/noctua-1.0/presentation/claude-qa-report.md`.
+
+## 2026-11-27 — draft 10: multi-agency simulation
+
+File: `console-draft-2026-11-27-6.html` (single self-contained HTML
+file; open it in any browser). Draft 9 plus a **simulation layer**
+for the proposed countywide design — labeled in the UI, in a banner
+on every view: "Simulation — proposed multi-agency design, not in
+the 1.2.8 code". All data is synthetic; nothing here changes the
+1.2.8 code, and drafts 1–9 are untouched.
+
+**What the simulation adds.**
+
+- **An agency dimension everywhere.** A new Agencies view carries a
+  camera board of the 24 agency-assigned cameras — Cabot PD 9,
+  Ward PD 8, Lonoke Co. Sheriff 6, Humnoke PD 1 — each with its
+  owning agency and active / degraded / inactive status, filterable
+  by city/agency, plus a county roll-up (counts and status only).
+  A small number of unattributed county points exist on the map but
+  are explicitly **not** counted as any agency's cameras. The Health
+  view's cameras now carry their Cabot PD tag too.
+- **Agency-scoped demo logins.** Alongside the existing Cabot PD
+  users (whose presenter flow is unchanged), the sign-in picker now
+  offers a Cabot PD patrol officer, a Ward PD detective, a Lonoke
+  Co. Sheriff's deputy with a supervisor role, a Humnoke PD officer,
+  and a county auditor. Signing in visibly re-scopes the console:
+  the hits queue, Tier 3 pending list, tagged audit rows and search
+  results show only that agency's data. The auditor's scope is
+  labeled non-CJI: all agencies' non-CJI audit material, no plate
+  queues, and plate searches are refused as outside scope.
+- **Alerts cross lines; history does not.** A scripted Ward PD
+  hot-list hit (WDR 731, CAM-W03) surfaces to a signed-in Cabot
+  officer as a partner-agency alert with plate, site and time —
+  but opening its history is refused, with the reason shown, and
+  the refusal is chained to the audit log.
+- **Cross-agency search is refused, explained, and logged.** A
+  Tier 2 (quick) or Tier 3 attempt on another agency's plate is
+  refused before any data moves: the UI explains the path — a case
+  number, a partner-agency request to the owning agency, and that
+  agency's supervisor as the second key — and the refused attempt
+  appears in the audit log. The Sheriff supervisor's roll-up view
+  states plainly what it still cannot do, including another
+  agency's Tier 3 without that agency's key; supervisors approve
+  only for their own agency.
+
+**Verification.** Built by anchored replacements
+(`presentation/fix-draft10.py`, 27 fixes, every anchor asserted)
+on a pristine draft-9 copy. The click-through harness was extended
+with 32 new assertions for the agency behavior — sign-in scoping
+for all five new logins, the partner alert and its refused history,
+both refused cross-agency searches and their audit entries, the
+board counts and filter, and the auditor's non-CJI scope — and
+re-run in a headless browser: **117/117 passed, zero page errors**
+(the 85 draft-9 assertions pass unchanged; none was weakened,
+deleted, or altered). Static greps: zero "NOCTUA", zero "30-day",
+zero "512 reads". Full record:
+`~/workspace/noctua-1.0/presentation/HANDOFF-DRAFT10.md`.
